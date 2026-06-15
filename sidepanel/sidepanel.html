@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NQ-Assistant</title>
+  <link rel="stylesheet" href="../lib/highlight-light.min.css" id="hljs-theme">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="toolbar-title">
+      <img class="logo" src="../icons/icon48.png" alt="NQ" width="22" height="22">
+      <h1>NQ-Assistant</h1>
+    </div>
+    <div class="toolbar-actions">
+      <button id="btnSelectAll" class="btn btn-sm" title="全选">☑️</button>
+      <button id="btnDeselectAll" class="btn btn-sm" title="取消全选">☐</button>
+      <button id="btnClear" class="btn btn-icon" title="清空">🗑️</button>
+      <button id="btnTheme" class="btn btn-icon" title="切换主题">🌓</button>
+    </div>
+  </header>
+
+  <div class="status-bar" id="statusBar">
+    <span id="statusText">等待捕获...</span>
+    <span id="msgCount" class="badge">0 条</span>
+    <span id="selectedCount" class="badge selected-badge" style="display:none">已选 0</span>
+  </div>
+
+  <main class="preview-area" id="previewArea">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">💬</div>
+      <p>点击 AI 回复旁的「📋 预览」按钮</p>
+      <p class="sub">内容将逐条添加到此处，关闭侧栏不丢失</p>
+    </div>
+    <div class="message-list" id="messageList" style="display:none;"></div>
+  </main>
+
+  <!-- 导出设置 -->
+  <div class="export-settings">
+    <div class="setting-row">
+      <label>模板：</label>
+      <select id="templateSelect">
+        <option value="academic">学术报告</option>
+        <option value="tech">技术文档</option>
+        <option value="meeting">会议纪要</option>
+        <option value="custom">自定义</option>
+      </select>
+      <label class="toc-label"><input type="checkbox" id="chkTOC"> 生成目录</label>
+    </div>
+    <span class="tpl-help" id="tplHelp" title="模板预览">❓</span>
+    <div class="tpl-popup" id="templatePreview" style="display:none"></div>
+  </div>
+
+  <footer class="export-bar">
+    <button id="btnExportWord" class="btn btn-primary"><span>📄</span> 导出 Word</button>
+    <button id="btnMergeExport" class="btn btn-secondary"><span>📦</span> 合并导出</button>
+  </footer>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <script src="../lib/markdown-it.min.js"></script>
+  <script src="../lib/highlight.min.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

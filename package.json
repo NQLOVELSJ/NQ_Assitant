@@ -1,0 +1,30 @@
+{
+  "name": "ai-export-extension",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@highlightjs/cdn-assets": "^11.11.1",
+    "docx": "^9.7.1",
+    "file-saver": "^2.0.5",
+    "highlight.js": "^11.11.1",
+    "html2pdf.js": "^0.14.0",
+    "markdown-it": "^14.2.0",
+    "marked": "^18.0.5",
+    "showdown": "^2.1.0",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.1"
+  }
+}

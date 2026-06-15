@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "NQ-Assistant",
+  "version": "2.0.0",
+  "description": "多平台 AI 回复提取、编辑、模板导出 Word",
+  "minimum_chrome_version": "114",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "NQ-Assistant - 打开预览面板"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.deepseek.com/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://kimi.moonshot.cn/*",
+        "https://www.doubao.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://chat.deepseek.com/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://kimi.moonshot.cn/*",
+    "https://www.doubao.com/*"
+  ],
+  "permissions": [
+    "sidePanel",
+    "storage"
+  ]
+}
