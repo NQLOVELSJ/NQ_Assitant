@@ -1,6 +1,6 @@
 /**
- * NQ-Assistant - Content Script v6
- * 多平台支持：DeepSeek / ChatGPT / Claude / Kimi
+ * NQ-Assistant - Content Script v7
+ * 多平台支持：DeepSeek / ChatGPT / Claude / Kimi / 豆包 (Doubao)
  */
 
 (function () {
@@ -41,9 +41,9 @@
     },
     doubao: {
       host: 'doubao.com',
-      message: '[class*="md-box-root"]',  // 豆包 markdown 容器直接就是 AI 回复
-      markdown: '[class*="md-box-root"]',
-      think: '[class*="think"], [class*="reasoning"]',
+      message: '[class*="side-by-side-messages"]',
+      markdown: '__SELF__',
+      think: '[class*="think"], [class*="reasoning"], [class*="thinking"], [class*="deep-thinking"]',
       name: '豆包'
     }
   };
@@ -81,6 +81,9 @@
         background: #d1fae5; color: #059669; border-color: #a7f3d0;
       }
       .nq-preview-btn .nq-icon { font-size: 14px; }
+      .nq-btn-group { display: inline-flex; gap: 3px; margin-left: 4px; }
+      .nq-export-btn { border-color: #c7d2fe; color: #4f46e5; }
+      .nq-export-btn:hover { background: #eef2ff; }
     `;
     document.head.appendChild(style);
   }
@@ -102,7 +105,8 @@
     removeThinking(clone);
     removeUIElements(clone);
     removeCitationLinks(clone);
-    const html = clone.innerHTML.trim();                          // 原始 HTML（导出用）
+    convertKatexToLatex(clone);
+    const html = clone.innerHTML.trim();
     const md = cleanContent(elementToMarkdown(clone));            // HTML→Markdown（预览/编辑用）
     return { html, md };
   }
@@ -125,10 +129,10 @@
     try { root.querySelectorAll('[class*="citation"], [class*="reference"], [class*="footnote"], [class*="source-link"]').forEach(e => e.remove()); } catch(e) {}
   }
 
-  /** 移除所有UI元素 */
+  /** 移除所有UI元素（非内容元素） */
   function removeUIElements(root) {
-    root.querySelectorAll('button, [role="button"], svg, [class*="icon"], [class*="copy"], [class*="download"], [class*="clipboard"]').forEach(e => e.remove());
-    root.querySelectorAll('[class*="toolbar"], [class*="action-bar"], [class*="code-header"], [class*="flex"], [class*="bar"]').forEach(e => e.remove());
+    root.querySelectorAll('button, [role="button"], svg, [class*="icon-btn"], [class*="copy-btn"], [class*="download"], [class*="clipboard"]').forEach(e => e.remove());
+    root.querySelectorAll('[class*="toolbar"], [class*="action-bar"], [class*="code-header"]').forEach(e => e.remove());
     // 移除引用链接：包含 href 的 sup/a 标签（如 ^14^15）
     root.querySelectorAll('a[href*="http"], sup a, a[href*="/citation"], a[href*="/ref"], [class*="citation"], [class*="reference"]').forEach(e => {
       if (e.textContent.trim().length < 20) e.remove(); // 只移除短引用链接，保留正文链接
@@ -136,16 +140,6 @@
     // 移除数字上标引用按钮
     root.querySelectorAll('sup, [class*="superscript"]').forEach(e => {
       if (/^\d+$/.test(e.textContent.trim()) || e.querySelector('a[href]')) e.remove();
-    });
-  }
-
-  function removeThinking(el) {
-    try {
-      if (PLATFORM.think) el.querySelectorAll(PLATFORM.think).forEach(n => n.remove());
-      else el.querySelectorAll('[class*="think"], [class*="thinking"], [class*="reasoning"]').forEach(n => n.remove());
-    } catch(e) {}
-    el.querySelectorAll('details').forEach(d => {
-      if (/思考|reasoning|thinking/i.test(getText(d.querySelector('summary')))) d.remove();
     });
   }
 
@@ -161,8 +155,7 @@
         // 判断是块级公式还是行内公式
         const isDisplay = katexEl.closest('.katex-display') !== null ||
                           katexEl.classList.contains('katex-display');
-        const wrapper = isDisplay ? '\n$$\n' + latex + '\n$$\n' : '$' + latex + '$';
-        // 替换 KaTeX 元素为文本节点
+        const wrapper = '$' + latex + '$';
         const textNode = document.createTextNode(wrapper);
         katexEl.parentNode.replaceChild(textNode, katexEl);
       }
@@ -171,7 +164,7 @@
     root.querySelectorAll('script[type="math/tex"], script[type="math/tex; mode=display"]').forEach(script => {
       const latex = script.textContent.trim();
       const isDisplay = script.getAttribute('type') === 'math/tex; mode=display';
-      const wrapper = isDisplay ? '\n$$\n' + latex + '\n$$\n' : '$' + latex + '$';
+      const wrapper = '$' + latex + '$';
       script.parentNode.replaceChild(document.createTextNode(wrapper), script);
     });
     // 处理原始 LaTeX 定界符 \(...\) 和 \[...\]（未被 KaTeX/MathJax 渲染时以文本形式存在）
@@ -186,8 +179,8 @@
     textNodes.forEach(node => {
       let text = node.textContent;
       let changed = false;
-      // 块级公式 \[...\] → $$...$$
-      text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, latex) => { changed = true; return '\n$$\n' + latex.trim() + '\n$$\n'; });
+      // 块级公式 \[...\] → $...$
+      text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, latex) => { changed = true; return '$' + latex.trim() + '$'; });
       // 行内公式 \(...\) → $...$
       text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, latex) => { changed = true; return '$' + latex.trim() + '$'; });
       if (changed) node.textContent = text;
@@ -197,11 +190,11 @@
   function removeThinking(el) {
     try {
       if (PLATFORM.think) el.querySelectorAll(PLATFORM.think).forEach(n => n.remove());
-      else el.querySelectorAll('[class*="think"], [class*="thinking"], [class*="reasoning"]').forEach(n => n.remove());
+      else el.querySelectorAll('[class*="think"], [class*="thinking"], [class*="reasoning"], [class*="deep-thinking"]').forEach(n => n.remove());
     } catch (e) {}
     el.querySelectorAll('details').forEach(d => {
       const s = d.querySelector('summary');
-      if (s && /思考|思考|reasoning|thinking|thought/i.test(getText(s))) d.remove();
+      if (s && /思考|深度思考|reasoning|thinking|thought/i.test(getText(s))) d.remove();
     });
   }
 
@@ -437,43 +430,90 @@
   let msgCounter = 0;
 
   function injectPreviewButton(messageEl) {
-    // ★ 用 data 属性防重复（比 class querySelector 更可靠，虚拟 DOM 不会复制）
     if (messageEl.hasAttribute('data-nq-injected')) return;
 
-    // 找到 markdown 内容元素
-    let markdownEl;
-    if (PLATFORM.message === PLATFORM.markdown) {
+    // 定位 markdown 内容元素
+    var markdownEl;
+    if (PLATFORM.markdown === '__SELF__') {
+      // 豆包等：消息元素本身就是内容容器
+      markdownEl = messageEl;
+    } else if (PLATFORM.message === PLATFORM.markdown) {
       markdownEl = messageEl;
     } else {
-      const allMd = messageEl.querySelectorAll(PLATFORM.markdown);
-      if (allMd.length === 0) return;
-      markdownEl = allMd[allMd.length - 1];
+      var allMd = messageEl.querySelectorAll(PLATFORM.markdown);
+      if (allMd.length === 0 && PLATFORM.key === 'doubao') {
+        allMd = messageEl.querySelectorAll('[class*="md-box-root"], [class*="prose"], [class*="answer"] > [class*="content"]');
+      }
+      if (allMd.length === 0 && PLATFORM.key === 'doubao') {
+        if ((messageEl.textContent || '').trim().length > 80) {
+          markdownEl = messageEl;
+        } else {
+          return;
+        }
+      } else if (allMd.length === 0) {
+        return;
+      } else {
+        markdownEl = allMd[allMd.length - 1];
+      }
     }
-    if (markdownEl.closest(PLATFORM.think)) return;
 
-    const btn = document.createElement('button');
-    btn.className = 'nq-preview-btn';
-    btn.innerHTML = '<span class="nq-icon">📋</span> 预览';
-    btn.title = '提取此回复到侧边栏预览';
+    // 跳过思考过程元素
+    if (markdownEl.closest && markdownEl.closest('[class*="think"]')) return;
+    if (markdownEl.closest && markdownEl.closest('[class*="reasoning"]')) return;
+    if (markdownEl.closest && markdownEl.closest('[class*="thinking"]')) return;
+    if (markdownEl.closest && markdownEl.closest('[class*="deep-thinking"]')) return;
 
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      captureMessage(messageEl, btn);
-    });
+    const btnGroup = document.createElement('span');
+    btnGroup.className = 'nq-btn-group';
 
-    markdownEl.insertAdjacentElement('afterend', btn);
+    const previewBtn = document.createElement('button');
+    previewBtn.className = 'nq-preview-btn';
+    previewBtn.innerHTML = '<span class="nq-icon">📋</span> 预览';
+    previewBtn.title = '提取到侧边栏';
+    previewBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); captureMessage(messageEl, previewBtn); });
+    btnGroup.appendChild(previewBtn);
+
+    const wordBtn = document.createElement('button');
+    wordBtn.className = 'nq-preview-btn nq-export-btn';
+    wordBtn.innerHTML = '📄';
+    wordBtn.title = '导出 Word';
+    wordBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); directExport(messageEl, wordBtn); });
+    btnGroup.appendChild(wordBtn);
+
+    const pdfBtn = document.createElement('button');
+    pdfBtn.className = 'nq-preview-btn';
+    pdfBtn.innerHTML = '📑';
+    pdfBtn.title = '导出 PDF';
+    pdfBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); directExportPDF(messageEl, pdfBtn); });
+    btnGroup.appendChild(pdfBtn);
+
+    if (PLATFORM.markdown === '__SELF__') {
+      markdownEl.appendChild(btnGroup);
+    } else {
+      markdownEl.insertAdjacentElement('afterend', btnGroup);
+    }
     messageEl.setAttribute('data-nq-injected', '1');
   }
 
   function captureMessage(messageEl, btn) {
-    // 取 markdown 内容（豆包等平台 message == markdown）
-    let markdownEl;
-    if (PLATFORM.message === PLATFORM.markdown) {
+    // 取 markdown 内容
+    var markdownEl;
+    if (PLATFORM.markdown === '__SELF__') {
+      markdownEl = messageEl;
+    } else if (PLATFORM.message === PLATFORM.markdown) {
       markdownEl = messageEl;
     } else {
-      const allMd = messageEl.querySelectorAll(PLATFORM.markdown);
-      markdownEl = allMd[allMd.length - 1];
+      var allMd = messageEl.querySelectorAll(PLATFORM.markdown);
+      if (allMd.length > 0) {
+        markdownEl = allMd[allMd.length - 1];
+      } else if (PLATFORM.key === 'doubao') {
+        var fallbackMd = messageEl.querySelectorAll('[class*="md-box-root"], [class*="prose"], [class*="answer"] > [class*="content"]');
+        if (fallbackMd.length > 0) {
+          markdownEl = fallbackMd[fallbackMd.length - 1];
+        } else if ((messageEl.textContent || '').trim().length > 80) {
+          markdownEl = messageEl;
+        }
+      }
     }
     if (!markdownEl) return;
 
@@ -484,29 +524,226 @@
     }
 
     msgCounter++;
+    var question = takeWords(extractUserQuestion(messageEl), 10);
     const msg = {
       id: 'msg_' + Date.now() + '_' + msgCounter,
-      html: html,       // 清洗后的 HTML（预览+导出用）
-      content: md,      // 纯文本 Markdown（编辑用）
+      html: html,
+      content: md,
+      title: question,
       role: 'assistant',
       index: msgCounter,
       timestamp: Date.now(),
       isComplete: true
     };
 
-    try { chrome.runtime.sendMessage({ action: 'newMessage', data: msg }).catch(() => {}); } catch(e) { /* context invalidated */ }
+    try {
+      if (window.NQFloatPanel) {
+        window.NQFloatPanel.addMessage(msg);
+      } else {
+        chrome.runtime.sendMessage({ action: 'newMessage', data: msg }).catch(function() {});
+      }
+    } catch(e) {}
     btn.classList.add('done');
     btn.innerHTML = '<span class="nq-icon">✅</span> 已捕获';
     log('捕获 AI 回复 #' + msg.index, md.substring(0, 80) + '...');
   }
 
+  // ============ 模板配置 ============
+  const TEMPLATES = {
+    academic: { name: '学术报告', fontFamily: 'SimSun, 宋体, serif', fontSize: '12pt', titleSize: '16pt', h1Size: '15pt', h2Size: '14pt', h3Size: '13pt', lineHeight: '1.8', color: '000000' },
+    tech:     { name: '技术文档', fontFamily: 'Microsoft YaHei, 微软雅黑, sans-serif', fontSize: '11pt', titleSize: '18pt', h1Size: '16pt', h2Size: '14pt', h3Size: '12pt', lineHeight: '1.6', color: '#1a1a2e' },
+    meeting:  { name: '会议纪要', fontFamily: 'Microsoft YaHei, 微软雅黑, sans-serif', fontSize: '11pt', titleSize: '15pt', h1Size: '14pt', h2Size: '13pt', h3Size: '12pt', lineHeight: '1.7', color: '333333' },
+    custom:   { name: '自定义',   fontFamily: 'Microsoft YaHei, 微软雅黑, sans-serif', fontSize: '11pt', titleSize: '16pt', h1Size: '15pt', h2Size: '14pt', h3Size: '12pt', lineHeight: '1.7', color: '333333' }
+  };
+
+  function ptToHalfPt(s) { if (!s) return 22; return parseInt(s) * 2; }
+
+  function getDocxOpts(tpl) {
+    if (!tpl) return null;
+    return {
+      font: (tpl.fontFamily || '').split(',')[0].trim(),
+      size: ptToHalfPt(tpl.fontSize),
+      color: tpl.color || '000000',
+      headingFont: (tpl.fontFamily || '').split(',')[0].trim(),
+      h1Size: ptToHalfPt(tpl.h1Size),
+      h2Size: ptToHalfPt(tpl.h2Size),
+      h3Size: ptToHalfPt(tpl.h3Size),
+      h4Size: ptToHalfPt(tpl.fontSize),
+      h5Size: ptToHalfPt(tpl.fontSize),
+      h6Size: ptToHalfPt(tpl.fontSize)
+    };
+  }
+
+  // ============ 直接导出 ============
+  function getMsgMarkdownEl(msgEl) {
+    if (PLATFORM.markdown === '__SELF__') return msgEl;
+    if (PLATFORM.message === PLATFORM.markdown) return msgEl;
+    var all = msgEl.querySelectorAll(PLATFORM.markdown);
+    if (all.length) return all[all.length - 1];
+    if (PLATFORM.key === 'doubao') {
+      var douFallbacks = ['[class*="md-box-root"]', '[class*="prose"]', '[class*="answer"] > [class*="content"]'];
+      for (var i = 0; i < douFallbacks.length; i++) {
+        var els = msgEl.querySelectorAll(douFallbacks[i]);
+        if (els.length) return els[els.length - 1];
+      }
+      var ownText = (msgEl.textContent || '').trim();
+      if (ownText.length > 80) { log('豆包回退：以 messageEl 自身为内容 (', ownText.length, '字符)'); return msgEl; }
+    }
+    return null;
+  }
+  function directExport(messageEl, btn) {
+    var mdEl = getMsgMarkdownEl(messageEl);
+    if (!mdEl) { btn.innerHTML = '❌'; log('directExport: 未找到 Markdown 元素, msgEl tag=', messageEl.tagName, 'class=', getClass(messageEl).substring(0, 60)); return; }
+    var clone = mdEl.cloneNode(true);
+    removeThinking(clone); removeUIElements(clone); removeCitationLinks(clone);
+    convertKatexToLatex(clone);
+    var md = elementToMarkdown(clone);
+    md = cleanContent(md);
+    if (!md) { btn.innerHTML = '⚠️'; log('directExport: 提取后内容为空, clone text=', (clone.textContent || '').trim().substring(0, 60)); return; }
+    var fname = takeWords(extractUserQuestion(messageEl), 10) || 'AI-Export';
+    fname = fname.replace(/[\\/:*?"<>|#]/g, '').trim();
+    var docxOpts = getDocxOpts(TEMPLATES.academic);
+    var childrenPromise = typeof md2docxChildren === 'function' ? md2docxChildren(md, docxOpts) : fallbackDocxChildren(md, docxOpts);
+    childrenPromise.then(function(children) {
+      var doc = new docx.Document({ sections: [{ properties: {}, children: children }] });
+      docx.Packer.toBlob(doc).then(function(blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a'); a.href = url; a.download = fname + '.docx'; a.click();
+        URL.revokeObjectURL(url);
+        btn.classList.add('done'); btn.innerHTML = '✅';
+      }).catch(function(e) { btn.innerHTML = '❌'; log('Word Blob 失败:', e); });
+    }).catch(function(e) { btn.innerHTML = '❌'; log('Word 导出失败:', e); });
+  }
+  function fallbackDocxChildren(md, opts) {
+    if (typeof _md2docxSetOpts === 'function') _md2docxSetOpts(opts);
+    return Promise.resolve(md.split('\n').map(function(line) {
+      return new docx.Paragraph({ spacing: { after: 120 }, children: [new docx.TextRun({ text: line || '' })] });
+    }));
+  }
+  function directExportPDF(messageEl, btn) {
+    var mdEl = getMsgMarkdownEl(messageEl);
+    if (!mdEl) { btn.innerHTML = '❌'; log('directExportPDF: 未找到 Markdown 元素'); return; }
+    var clone = mdEl.cloneNode(true);
+    removeThinking(clone); removeUIElements(clone); removeCitationLinks(clone);
+    convertKatexToLatex(clone);
+    var html = clone.innerHTML.trim();
+    if (!html) { btn.innerHTML = '⚠️'; log('directExportPDF: 提取后内容为空'); return; }
+    var fullHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+      'body{font-family:"Microsoft YaHei",sans-serif;font-size:12px;line-height:1.6;color:#000;padding:20px}' +
+      'img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}th{background:#e8e8e8}' +
+      'pre{background:#f5f5f5;padding:8px;overflow-x:auto}code{font-family:Consolas,monospace;background:#f0f0f0;padding:1px 3px}' +
+      'blockquote{border-left:3px solid #4f46e5;margin:8px 0;padding:4px 12px;background:#eef2ff}' +
+      '@media print{@page{margin:10mm}}</style></head><body>' + html + '</body></html>';
+    var blob = new Blob([fullHtml], { type: 'text/html' });
+    var url = URL.createObjectURL(blob);
+    var iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:2147483647;border:none;background:#fff';
+    var cleanup = function() {
+      setTimeout(function() {
+        try { document.body.removeChild(iframe); } catch(e) {}
+        URL.revokeObjectURL(url);
+        btn.classList.add('done'); btn.innerHTML = '✅';
+      }, 2000);
+    };
+    iframe.addEventListener('load', function() {
+      var iw = iframe.contentWindow;
+      if (iw) {
+        iw.focus();
+        iw.addEventListener('afterprint', cleanup, { once: true });
+        iw.print();
+      }
+    }, { once: true });
+    iframe.src = url;
+    document.body.appendChild(iframe);
+  }
+  function takeWords(text, max) {
+    if (!text) return '';
+    var parts = text.split(/[\s]+/).filter(function(w) { return w.length > 0; });
+    return parts.slice(0, max).join(' ');
+  }
+  function extractUserQuestion(el) {
+    var allMsgs = document.querySelectorAll(PLATFORM.message);
+    // 豆包回退：主选择器没命中时，尝试回退选择器或父级子元素
+    if (allMsgs.length === 0 && PLATFORM.key === 'doubao') {
+      var douFallbackSel = '[class*="message-content"], [class*="chat-msg"], [class*="chat-item"], [class*="bubble"], [class*="reply-item"], [class*="turn"], [class*="conversation"] [class*="item"], [class*="answer-item"], [class*="message"][class*="assistant"], [class*="message"]';
+      allMsgs = document.querySelectorAll(douFallbackSel);
+      if (allMsgs.length === 0 && el.parentElement) {
+        allMsgs = Array.from(el.parentElement.children);
+      }
+    }
+    var idx = -1;
+    for (var i = 0; i < allMsgs.length; i++) { if (allMsgs[i] === el) { idx = i; break; } }
+    for (var j = idx - 1; j >= 0; j--) {
+      if (PLATFORM.markdown === '__SELF__') {
+        // __SELF__ 模式：前一个消息元素就是用户问题
+        var ut = (allMsgs[j].textContent || '').replace(/[\s\n]+/g, ' ').trim();
+        if (ut.length >= 4) return ut;
+        continue;
+      }
+      if (allMsgs[j].querySelector(PLATFORM.markdown)) continue;
+      var qt = (allMsgs[j].textContent || '').replace(/[\s\n]+/g, ' ').trim();
+      if (qt.length >= 4) return qt;
+    }
+    return '';
+  }
+
   // ============ 消息扫描 + 按钮注入 ============
+  var _doubaoLogged = false;
   function scanAndInject() {
-    const count = document.querySelectorAll(PLATFORM.message).length;
+    var msgs = document.querySelectorAll(PLATFORM.message);
+    // 豆包：首次扫描时记录 DOM 诊断信息
+    if (!_doubaoLogged && PLATFORM.key === 'doubao' && msgs.length > 0) {
+      _doubaoLogged = true;
+      var sample = [];
+      for (var si = 0; si < Math.min(msgs.length, 5); si++) {
+        sample.push('  [#' + si + '] tag=' + msgs[si].tagName + ' class="' + (getClass(msgs[si]).substring(0, 80)) + '" text=' + (msgs[si].textContent || '').trim().substring(0, 40));
+      }
+      log('豆包 DOM 诊断 (共 ' + msgs.length + ' 个候选):\n' + sample.join('\n'));
+    }
+    // 如果主选择器没有匹配，尝试回退选择器
+    if (msgs.length === 0 && PLATFORM.key === 'doubao') {
+      // 豆包回退尝试多种可能的选择器
+      var fallbacks = [
+        '[class*="side-by-side-messages"]',
+        '[class*="message-list"] > [class*="mx-auto"]',
+        '[class*="message-content"]',
+        '[class*="agent"] [class*="content"]:not([class*="think"])',
+        '[class*="chat-msg"]',
+        '[class*="chat-item"]',
+        '[class*="reply-item"]',
+        '[class*="turn"]',
+        '[class*="conversation"] [class*="item"]',
+        '[class*="message"][class*="assistant"]'
+      ];
+      for (var fi = 0; fi < fallbacks.length; fi++) {
+        msgs = document.querySelectorAll(fallbacks[fi]);
+        if (msgs.length > 0) { log('豆包回退选择器:', fallbacks[fi], '->', msgs.length, '个'); break; }
+      }
+    }
+    var count = msgs.length;
     log('scanAndInject: 找到', count, '个候选消息');
-    document.querySelectorAll(PLATFORM.message).forEach(msg => {
+    msgs.forEach(function(msg) {
       if (msg.hasAttribute('data-nq-injected')) return;
-      const hasContent = (PLATFORM.message === PLATFORM.markdown) || msg.querySelector(PLATFORM.markdown);
+      if (PLATFORM.key === 'doubao') {
+        // 过滤用户消息（包含 user 类的元素）
+        if (msg.closest && msg.closest('[class*="user"], [class*="human"]')) return;
+        if (/user|human/i.test(getClass(msg))) return;
+      }
+      var hasContent = false;
+      if (PLATFORM.markdown === '__SELF__') {
+        hasContent = (msg.textContent || '').trim().length > 80;
+      } else if (PLATFORM.message === PLATFORM.markdown) {
+        hasContent = true;
+      } else {
+        var mdQ = msg.querySelectorAll(PLATFORM.markdown);
+        if (mdQ.length > 0) {
+          var bestMd = mdQ[mdQ.length - 1];
+          hasContent = (bestMd.textContent || '').trim().length > 20;
+        } else if (PLATFORM.key === 'doubao') {
+          var ownText = (msg.textContent || '').trim();
+          hasContent = ownText.length > 80;
+        }
+      }
       if (hasContent) injectPreviewButton(msg);
     });
   }
@@ -540,17 +777,9 @@
     return best || document.body;
   }
 
-  // ============ 外部消息 ============
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'rescan') {
-      scanAndInject();
-      sendResponse({ success: true });
-    }
-  });
-
   // ============ 启动 ============
   function init() {
-    log('v5 初始化');
+    log('v7 初始化');
     injectStyles();
     scanAndInject();
     startObserving();
@@ -562,7 +791,10 @@
         lastUrl = window.location.href;
         log('SPA 导航');
         msgCounter = 0;
-        try { chrome.runtime.sendMessage({ action: 'clearAllMessages' }).catch(() => {}); } catch(e) {}
+        try {
+          if (window.NQFloatPanel) window.NQFloatPanel.clearMessages();
+          else chrome.runtime.sendMessage({ action: 'clearAllMessages' }).catch(function() {});
+        } catch(e) {}
         setTimeout(() => { scanAndInject(); }, 800);
       }
     }).observe(document.body, { childList: true, subtree: true });

@@ -23,7 +23,7 @@
       fontSize: '12pt', titleSize: '16pt',
       h1Size: '15pt', h2Size: '14pt', h3Size: '13pt',
       lineHeight: '1.8', pageMargin: '0',
-      color: '#000'
+      color: '#000000'
     },
     tech: {
       name: '技术文档',
@@ -39,7 +39,7 @@
       fontSize: '11pt', titleSize: '15pt',
       h1Size: '14pt', h2Size: '13pt', h3Size: '12pt',
       lineHeight: '1.7', pageMargin: '0',
-      color: '#333'
+      color: '#333333'
     },
     custom: {
       name: '自定义',
@@ -47,7 +47,7 @@
       fontSize: '11pt', titleSize: '16pt',
       h1Size: '15pt', h2Size: '14pt', h3Size: '12pt',
       lineHeight: '1.7', pageMargin: '0',
-      color: '#333'
+      color: '#333333'
     }
   };
 
@@ -76,23 +76,85 @@
 
   function renderMarkdown(md) {
     if (!md) return '';
-    // ★ 诊断：打印前 300 字符看 Markdown 源码是否正确
-    if (!window._nqDiag) { window._nqDiag = true; console.log('[NQ] MD sample:', md.substring(0, 300)); }
     if (mdit) {
       try {
-        // $$...$$ 只渲染含数学特征（\\ ^ _ {）的为公式，否则当作代码示例
-        let p = md.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) =>
-          /[\\\^_{}]/.test(m) ? '<div class="math-block">' + esc(m.trim()) + '</div>' : '<code>$$' + esc(m) + '$$</code>'
-        );
-        p = p.replace(/\$([^$\n]{1,200}?)\$/g, (_, m) =>
-          /[\\\^_{}]/.test(m) ? '<span class="math-inline">' + esc(m.trim()) + '</span>' : '<code>$' + esc(m) + '$</code>'
-        );
-        var result = mdit.render(p);
-        if (!window._nqDiag2) { window._nqDiag2 = true; console.log('[NQ] HTML sample:', result.substring(0, 300)); }
-        return result;
-      } catch(e) { console.error('[NQ] mdit:', e); }
+        var hasKatex2 = typeof katex !== 'undefined' && typeof katex.renderToString === 'function';
+        // Let markdown-it render normally, then post-process math in HTML
+        var html = mdit.render(md);
+        html = renderMathInHtml(html, hasKatex2);
+        return html;
+      } catch(e) { console.error('[NQ] mdit:', e); return basicRender(md); }
     }
     return basicRender(md);
+  }
+
+  /** Post-process HTML: find $$...$$ and $...$ not inside <code>/<pre> and replace with KaTeX */
+  function renderMathInHtml(html, hasKatex2) {
+    // $$...$$ in <p> tags → block math (markdown-it wraps standalone $$...$$ in <p>)
+    html = html.replace(/<p>\$\$([\s\S]+?)\$\$<\/p>/g, function(match, latex) {
+      var lt = latex.trim();
+      if (!/[\\\^_{}]/.test(lt)) return '<p><code>$$' + lt + '$$</code></p>';
+      if (hasKatex2) {
+        try {
+          return '<div class="math-block">' + katex.renderToString(lt, { throwOnError: false, strict: false, displayMode: true }) + '</div>';
+        } catch(e) {}
+      }
+      return '<div class="math-block">' + esc(lt) + '</div>';
+    });
+    // $...$ inline math — manual scan (avoids lookbehind compatibility issues)
+    var result = '';
+    var i = 0;
+    while (i < html.length) {
+      var j = html.indexOf('$', i);
+      if (j === -1) { result += html.substring(i); break; }
+      // Skip if inside <code> or <pre>
+      var before = html.substring(Math.max(0, j - 200), j);
+      if (/<(code|pre)\b[^>]*>/.test(before) && !/<\/(code|pre)>/.test(before)) {
+        result += html.substring(i, j + 1);
+        i = j + 1;
+        continue;
+      }
+      // Try $$...$$ block math (anywhere in HTML)
+      var subBlock = html.substring(j);
+      var bm = subBlock.match(/^\$\$([\s\S]+?)\$\$/);
+      if (bm) {
+        if (j > i) result += html.substring(i, j);
+        var bmInner = bm[1].trim();
+        if (/[\\\^_{}]/.test(bmInner) && hasKatex2) {
+          try {
+            result += '<div class="math-block">' + katex.renderToString(bmInner, { throwOnError: false, strict: false, displayMode: true }) + '</div>';
+            i = j + bm[0].length;
+            continue;
+          } catch(e) {}
+        }
+        // Not real math — keep as literal
+        result += '$$' + bmInner + '$$';
+        i = j + bm[0].length;
+        continue;
+      }
+      // Try $...$ inline math
+      var sub = html.substring(j);
+      var im = sub.match(/^\$([^$\n]{1,200}?)\$/);
+      if (im) {
+        if (j > i) result += html.substring(i, j);
+        var inner = im[1].trim();
+        if (/[\\\^_{}]/.test(inner) && hasKatex2) {
+          try {
+            result += '<span class="math-inline">' + katex.renderToString(inner, { throwOnError: false, strict: false, displayMode: false }) + '</span>';
+            i = j + im[0].length;
+            continue;
+          } catch(e) {}
+        }
+        result += '$' + inner + '$';
+        i = j + im[0].length;
+        continue;
+      }
+      // Lone $ — keep as text
+      if (j > i) result += html.substring(i, j);
+      result += '$';
+      i = j + 1;
+    }
+    return result;
   }
 
   function basicRender(md) {
@@ -153,20 +215,44 @@
   }
 
   function renderInline(text) {
-    let h = esc(text);
-    // LaTeX 块级公式: $$ 必须在行首/行尾（前面或后面紧跟换行）
-    h = h.replace(/(^|\n)\$\$([\s\S]+?)\$\$/g, '$1<div class="math-block">$2</div>');
-    h = h.replace(/\$\$(.+?)\$\$(?=\n|$)/g, '<div class="math-block">$1</div>');
-    // 移除非公式的 $$ 残留（如解释性文字中的 $$...$$）
-    h = h.replace(/\$\$(\s*\S.{0,60}?)\$\$/g, (m, inner) => {
-      // 只有包含数学特征（\ ^ _ {）才渲染为公式，否则当做普通文本
-      if (/[\\\^_{}]/.test(inner)) return '<div class="math-block">' + inner + '</div>';
-      return '<code>$$' + inner + '$$</code>';
+    var hasKatex2 = typeof katex !== 'undefined' && typeof katex.renderToString === 'function';
+    var h = esc(text);
+    // Block math $$...$$
+    h = h.replace(/(^|\n)\$\$([\s\S]+?)\$\$/g, function(_, nl, latex) {
+      if (!/[\\\^_{}]/.test(latex)) return nl + '<code>$$' + esc(latex) + '$$</code>';
+      if (hasKatex2) {
+        try { return nl + '<div class="math-block">' + katex.renderToString(latex.trim(), { throwOnError: false, displayMode: true }) + '</div>'; }
+        catch(e) { return nl + '<div class="math-block">' + esc(latex.trim()) + '</div>'; }
+      }
+      return nl + '<div class="math-block">' + esc(latex.trim()) + '</div>';
     });
-    // LaTeX 行内公式 $...$（不跨行）
-    h = h.replace(/\$([^$\n]{1,100}?)\$/g, '<span class="math-inline">$1</span>');
+    h = h.replace(/\$\$(.+?)\$\$(?=\n|$)/g, function(_, latex) {
+      if (!/[\\\^_{}]/.test(latex)) return '<code>$$' + esc(latex) + '$$</code>';
+      if (hasKatex2) {
+        try { return '<div class="math-block">' + katex.renderToString(latex.trim(), { throwOnError: false, displayMode: true }) + '</div>'; }
+        catch(e) { return '<div class="math-block">' + esc(latex.trim()) + '</div>'; }
+      }
+      return '<div class="math-block">' + esc(latex.trim()) + '</div>';
+    });
+    // Leftover standalone $$ pairs
+    h = h.replace(/\$\$(\s*\S.{0,60}?)\$\$/g, function(m, inner) {
+      if (/[\\\^_{}]/.test(inner)) {
+        if (hasKatex2) { try { return '<div class="math-block">' + katex.renderToString(inner.trim(), { throwOnError: false, displayMode: true }) + '</div>'; } catch(e) {} }
+        return '<div class="math-block">' + esc(inner.trim()) + '</div>';
+      }
+      return '<code>$$' + esc(inner) + '$$</code>';
+    });
+    // Inline math $...$
+    h = h.replace(/\$([^$\n]{1,100}?)\$/g, function(_, latex) {
+      if (!/[\\\^_{}]/.test(latex)) return '<code>$' + esc(latex) + '$</code>';
+      if (hasKatex2) {
+        try { return '<span class="math-inline">' + katex.renderToString(latex.trim(), { throwOnError: false, displayMode: false }) + '</span>'; }
+        catch(e) { return '<span class="math-inline">' + esc(latex.trim()) + '</span>'; }
+      }
+      return '<span class="math-inline">' + esc(latex.trim()) + '</span>';
+    });
     h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    h = h.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>');
+    h = h.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
     h = h.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
     h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
     h = h.replace(/~~(.+?)~~/g, '<del>$1</del>');
@@ -342,6 +428,23 @@
   }
 
   // ============ 导出 ============
+  function ptToHalf(s) { if (!s) return 22; return parseInt(s) * 2; }
+  function getDocxOpts(tpl) {
+    if (!tpl) return null;
+    var rawColor = (tpl.color || '#000000').replace('#', '');
+    return {
+      font: (tpl.fontFamily || '').split(',')[0].trim(),
+      size: ptToHalf(tpl.fontSize),
+      color: rawColor,
+      headingFont: (tpl.fontFamily || '').split(',')[0].trim(),
+      h1Size: ptToHalf(tpl.h1Size),
+      h2Size: ptToHalf(tpl.h2Size),
+      h3Size: ptToHalf(tpl.h3Size),
+      h4Size: ptToHalf(tpl.fontSize),
+      h5Size: ptToHalf(tpl.fontSize),
+      h6Size: ptToHalf(tpl.fontSize)
+    };
+  }
   function getExportCSS(tpl) {
     return `
 body{font-family:${tpl.fontFamily};font-size:${tpl.fontSize};line-height:${tpl.lineHeight};color:${tpl.color};max-width:100%}
@@ -371,16 +474,45 @@ img{max-width:100%}.page-break{page-break-before:always}
   function exportWord() {
     const selected = getSelectedMessages();
     if (!selected.length) { showToast('请先选择消息', 'error'); return; }
-    const tpl = TEMPLATES[state.currentTemplate] || TEMPLATES.academic;
-    const includeTOC = $('#chkTOC')?.checked || false;
+    const title = (selected[0].title || '').replace(/[\\/:*?"<>|#]/g, '').trim() || 'AI';
     try {
-      const html = getExportHTML(selected, tpl, includeTOC);
-      const blob = new Blob(['﻿' + html], { type: 'application/msword' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `NQ-Assistant-${fmtDate(new Date())}.doc`; a.click();
-      URL.revokeObjectURL(url);
-      showToast(`Word 导出成功 (${selected.length} 条)`, 'success');
+      const tpl = TEMPLATES[state.currentTemplate] || TEMPLATES.academic;
+      const docxOpts = getDocxOpts(tpl);
+      const promises = selected.map(function(m, i) {
+        const md = m.content || '';
+        if (!md) return Promise.resolve([]);
+        return (md2docxChildren ? md2docxChildren(md, docxOpts) : fallbackDocxChildren(md, docxOpts)).then(function(children) {
+          if (i < selected.length - 1) {
+            children.push(new docx.Paragraph({
+              spacing: { before: 400, after: 400 },
+              border: { bottom: { style: docx.BorderStyle.SINGLE, size: 6, space: 1, color: 'CCCCCC' } }
+            }));
+          }
+          return children;
+        });
+      });
+      Promise.all(promises).then(function(results) {
+        var allChildren = [];
+        results.forEach(function(c) { allChildren.push.apply(allChildren, c); });
+        if (!allChildren.length) { showToast('无有效内容', 'error'); return; }
+        var doc = new docx.Document({ sections: [{ properties: {}, children: allChildren }] });
+        docx.Packer.toBlob(doc).then(function(blob) {
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = title + '-' + fmtDate(new Date()) + '.docx';
+          a.click();
+          URL.revokeObjectURL(url);
+          showToast('Word 导出成功 (' + selected.length + ' 条)', 'success');
+        }).catch(function(e) { showToast('导出失败: ' + e.message, 'error'); });
+      }).catch(function(e) { showToast('导出失败: ' + e.message, 'error'); });
     } catch (e) { showToast('导出失败: ' + e.message, 'error'); }
+  }
+  function fallbackDocxChildren(md, opts) {
+    if (typeof _md2docxSetOpts === 'function') _md2docxSetOpts(opts);
+    return Promise.resolve(md.split('\n').map(function(line) {
+      return new docx.Paragraph({ spacing: { after: 120 }, children: [new docx.TextRun({ text: line || '' })] });
+    }));
   }
 
   function mergeExport() {
@@ -413,18 +545,28 @@ img{max-width:100%}.page-break{page-break-before:always}
     if (!tpl) return;
     const prev = $('#templatePreview');
     if (!prev) return;
-    prev.style.cssText = `font-family:${tpl.fontFamily};font-size:${tpl.fontSize};line-height:${tpl.lineHeight};color:${tpl.color};padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);box-shadow:0 4px 12px rgba(0,0,0,0.15);position:absolute;bottom:100%;left:0;right:0;margin-bottom:4px;z-index:100`;
-    prev.innerHTML = `<div style="font-size:${tpl.titleSize};font-weight:bold;border-bottom:2px solid #333;padding-bottom:3px;margin-bottom:4px">${tpl.name} - 标题</div>
-<div style="font-size:${tpl.h1Size};font-weight:bold">一级标题 ${tpl.h1Size}</div>
-<div style="font-size:${tpl.h2Size};font-weight:bold;color:#555">二级标题 ${tpl.h2Size}</div>
-<div style="margin-top:4px">正文 ${tpl.fontSize} / 行距${tpl.lineHeight}</div>`;
+    var bar = document.querySelector('.export-settings');
+    var rect = bar ? bar.getBoundingClientRect() : null;
+    if (rect) {
+      prev.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+      prev.style.left = rect.left + 'px';
+      prev.style.right = (window.innerWidth - rect.right) + 'px';
+    } else {
+      prev.style.bottom = '60px';
+    }
+    prev.innerHTML = '<div style="font-size:' + tpl.titleSize + ';font-weight:bold;border-bottom:2px solid #333;padding-bottom:3px;margin-bottom:4px">' + tpl.name + ' - 标题</div>' +
+      '<div style="font-size:' + tpl.h1Size + ';font-weight:bold;margin:3px 0">一级标题 ' + tpl.h1Size + '</div>' +
+      '<div style="font-size:' + tpl.h2Size + ';font-weight:bold;color:#555;margin:3px 0">二级标题 ' + tpl.h2Size + '</div>' +
+      '<div style="font-size:' + tpl.h3Size + ';font-weight:bold;color:#777;margin:3px 0">三级标题 ' + tpl.h3Size + '</div>' +
+      '<div style="margin-top:6px;color:' + tpl.color + '">正文 ' + tpl.fontSize + ' / 行距 ' + tpl.lineHeight + ' / 字体 ' + tpl.fontFamily.split(',')[0] + '</div>' +
+      '<div style="margin-top:2px;font-size:10px;color:var(--text-muted)">代码块使用 Consolas 等宽字体</div>';
   }
 
   function bindTplHover() {
     const help = $('#tplHelp'), popup = $('#templatePreview');
     if (!help || !popup) return;
-    help.addEventListener('mouseenter', () => { updateTemplatePreview(); popup.style.display = ''; });
-    help.addEventListener('mouseleave', () => { popup.style.display = 'none'; });
+    help.addEventListener('mouseenter', function() { updateTemplatePreview(); popup.style.display = 'block'; });
+    help.addEventListener('mouseleave', function() { popup.style.display = 'none'; });
   }
 
   function fmtDate(d) {

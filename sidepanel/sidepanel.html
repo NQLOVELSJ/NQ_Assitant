@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NQ-Assistant</title>
+  <link rel="stylesheet" href="../lib/katex.min.css">
   <link rel="stylesheet" href="../lib/highlight-light.min.css" id="hljs-theme">
   <link rel="stylesheet" href="sidepanel.css">
 </head>
@@ -46,10 +47,10 @@
         <option value="meeting">会议纪要</option>
         <option value="custom">自定义</option>
       </select>
+      <span class="tpl-help" id="tplHelp" title="模板预览">?</span>
       <label class="toc-label"><input type="checkbox" id="chkTOC"> 生成目录</label>
     </div>
-    <span class="tpl-help" id="tplHelp" title="模板预览">❓</span>
-    <div class="tpl-popup" id="templatePreview" style="display:none"></div>
+    <div class="tpl-popup" id="templatePreview"></div>
   </div>
 
   <footer class="export-bar">
@@ -58,6 +59,11 @@
   </footer>
 
   <div class="toast-container" id="toastContainer"></div>
+  <script src="../lib/katex.min.js"></script>
+  <script src="../lib/docx.bundle.js"></script>
+  <script src="../lib/latex2omml.js"></script>
+  <script src="../lib/marked.min.js"></script>
+  <script src="../lib/md2docx.js"></script>
   <script src="../lib/markdown-it.min.js"></script>
   <script src="../lib/highlight.min.js"></script>
   <script src="sidepanel.js"></script>

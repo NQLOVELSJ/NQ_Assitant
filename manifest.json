@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NQ-Assistant",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "多平台 AI 回复提取、编辑、模板导出 Word",
   "minimum_chrome_version": "114",
   "icons": {
@@ -10,7 +10,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "NQ-Assistant - 打开预览面板"
+    "default_title": "NQ-Assistant - 打开侧边面板"
   },
   "side_panel": {
     "default_path": "sidepanel/sidepanel.html"
@@ -26,9 +26,21 @@
         "https://chat.openai.com/*",
         "https://claude.ai/*",
         "https://kimi.moonshot.cn/*",
-        "https://www.doubao.com/*"
+        "https://www.doubao.com/*",
+        "https://doubao.com/*"
       ],
-      "js": ["content.js"],
+      "css": ["lib/floatpanel.css"],
+      "js": [
+        "lib/docx.bundle.js",
+        "lib/latex2omml.js",
+        "lib/marked.min.js",
+        "lib/md2docx.js",
+        "lib/katex.min.js",
+        "lib/markdown-it.min.js",
+        "lib/html2pdf.bundle.min.js",
+        "lib/floatpanel.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -38,10 +50,25 @@
     "https://chat.openai.com/*",
     "https://claude.ai/*",
     "https://kimi.moonshot.cn/*",
-    "https://www.doubao.com/*"
+    "https://www.doubao.com/*",
+    "https://doubao.com/*"
   ],
   "permissions": [
-    "sidePanel",
-    "storage"
+    "storage",
+    "sidePanel"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/katex.min.css", "icons/icon48.png"],
+      "matches": [
+        "https://chat.deepseek.com/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://kimi.moonshot.cn/*",
+        "https://www.doubao.com/*",
+        "https://doubao.com/*"
+      ]
+    }
   ]
 }

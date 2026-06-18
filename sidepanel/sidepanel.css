@@ -172,35 +172,20 @@ body {
   max-height: 0; padding: 0 14px;
 }
 
-/* ============ Markdown 渲染内容 ============ */
+/* ============ 正文渲染 ============ */
 .msg-card-body { word-wrap: break-word; overflow-wrap: break-word; }
 .msg-card-body h1, .msg-card-body h2, .msg-card-body h3,
-.msg-card-body h4, .msg-card-body h5, .msg-card-body h6 {
-  margin: 0.8em 0 0.4em; line-height: 1.3;
-}
+.msg-card-body h4, .msg-card-body h5, .msg-card-body h6 { margin: 0.8em 0 0.4em; line-height: 1.3; }
 .msg-card-body h1 { font-size: 1.3em; border-bottom: 2px solid var(--border-color); padding-bottom: 0.2em; }
 .msg-card-body h2 { font-size: 1.15em; border-bottom: 1px solid var(--border-color); padding-bottom: 0.15em; }
 .msg-card-body h3 { font-size: 1.05em; }
 .msg-card-body p { margin: 0.5em 0; }
 .msg-card-body a { color: var(--accent); text-decoration: none; }
-.msg-card-body a:hover { text-decoration: underline; }
 .msg-card-body strong { font-weight: 600; }
-.msg-card-body code {
-  font-family: var(--font-mono); font-size: 0.88em;
-  background: var(--bg-tertiary); color: var(--accent);
-  padding: 1px 5px; border-radius: 3px;
-}
-.msg-card-body pre {
-  background: var(--bg-secondary); border: 1px solid var(--border-color);
-  border-radius: var(--radius); padding: 12px; overflow-x: auto;
-  margin: 0.6em 0; font-size: 12px; line-height: 1.5;
-}
+.msg-card-body code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-tertiary); color: var(--accent); padding: 1px 5px; border-radius: 3px; }
+.msg-card-body pre { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 12px; overflow-x: auto; margin: 0.6em 0; font-size: 12px; line-height: 1.5; }
 .msg-card-body pre code { background: none; color: var(--text-primary); padding: 0; font-size: inherit; }
-.msg-card-body blockquote {
-  border-left: 3px solid var(--accent); margin: 0.6em 0;
-  padding: 4px 12px; color: var(--text-secondary);
-  background: var(--accent-light); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
+.msg-card-body blockquote { border-left: 3px solid var(--accent); margin: 0.6em 0; padding: 4px 12px; color: var(--text-secondary); background: var(--accent-light); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .msg-card-body ul, .msg-card-body ol { margin: 0.4em 0; padding-left: 1.6em; }
 .msg-card-body li { margin: 0.15em 0; }
 .msg-card-body table { width: 100%; border-collapse: collapse; margin: 0.6em 0; font-size: 12px; }
@@ -263,8 +248,26 @@ body {
   color: var(--text-primary); outline: none;
 }
 .toc-label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-.tpl-help { cursor: help; font-size: 13px; position: relative; }
-.tpl-popup { position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 4px; z-index: 100; }
+.tpl-help {
+  cursor: help; position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  margin-left: 6px; flex-shrink: 0;
+}
+.tpl-help:hover { background: var(--accent-hover); }
+.tpl-popup {
+  display: none; position: fixed;
+  left: 12px; right: 12px; top: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  z-index: 9999; font-size: 12px; line-height: 1.6;
+}
+.tpl-popup.show { display: block; }
 .export-settings { position: relative; }
 
 /* ============ 拖拽排序 ============ */

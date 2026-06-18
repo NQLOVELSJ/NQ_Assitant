@@ -19,6 +19,7 @@
     "file-saver": "^2.0.5",
     "highlight.js": "^11.11.1",
     "html2pdf.js": "^0.14.0",
+    "katex": "^0.17.0",
     "markdown-it": "^14.2.0",
     "marked": "^18.0.5",
     "showdown": "^2.1.0",
