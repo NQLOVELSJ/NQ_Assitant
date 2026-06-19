@@ -115,9 +115,17 @@
         filter: function(node) { return node.classList && (node.classList.contains('katex') || node.classList.contains('katex-display')); },
         replacement: function(content) { return content; }
       });
-      // Strip empty links
       _turndown.addRule('empty-links', {
         filter: function(node) { return node.nodeName === 'A' && !node.getAttribute('href'); },
+        replacement: function(content) { return content; }
+      });
+      // Footnote links: [^1] rendered as <a href=...>[^1]</a> by Doubao
+      _turndown.addRule('footnote-links', {
+        filter: function(node) {
+          if (node.nodeName !== 'A') return false;
+          var txt = (node.textContent || '').trim();
+          return /^\[\^/.test(txt);
+        },
         replacement: function(content) { return content; }
       });
     }
@@ -129,6 +137,13 @@
     if (td) {
       try {
         var result = td.turndown(el.outerHTML || el.innerHTML);
+        // Post-process: fix nested list indentation
+        result = fixNestedListIndent(result);
+        // Post-process: remove orphaned language labels (standalone words before code fences)
+        var langNames = 'plaintext|text|javascript|js|python|py|java|bash|sh|shell|html|css|json|xml|markdown|md|sql|go|rust|rs|c|cpp|ruby|rb|php|swift|kotlin|ts|yaml';
+        var langRe = new RegExp('^(' + langNames + ')\\s*$', 'gm');
+        result = result.replace(langRe, '');
+
         return result;
       } catch(e) {
         log('turndown 失败，回退到 elementToMarkdown:', e);
@@ -137,37 +152,88 @@
     return elementToMarkdown(el);
   }
 
-  /** 将 div 表格（grid/flex布局的假表格）转换为 HTML <table> */
-  function convertDivTables(root) {
-    // 策略：找连续的同级 div 子元素，如果它们有类似表格的 class，封装为 <table>
-    root.querySelectorAll('[class*="table"], [class*="tbl"], [class*="grid"]').forEach(function(container) {
-      if (container.tagName === 'TABLE') return;
-      // 只处理包含表格特征类名的容器
-      var cls = getClass(container).toLowerCase();
-      if (!/table|tbl|grid|row|cell/i.test(cls)) return;
+  /** Fix nested list indentation: ensure sub-items have at least 2-space indent */
+  function fixNestedListIndent(md) {
+    var lines = md.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^(\s*)([-*+]|\d+\.)\s/);
+      if (m && m[1].length > 0 && m[1].length < 2) {
+        // Pad to at least 2 spaces for nested list items
+        lines[i] = ' ' + lines[i];
+      }
+    }
+    return lines.join('\n');
+  }
 
-      var rows = [];
-      var directChildren = Array.prototype.filter.call(container.children, function(c) {
+  /** 将 div 表格转换为 HTML <table>，支持 Doubao 的 div 布局表格 */
+  function convertDivTables(root) {
+    // Pass 1: 找所有包含表格特征的容器，检测 flat cell layout (Doubao: 一个容器内所有子 div 都是 cell)
+    root.querySelectorAll('div, section').forEach(function(container) {
+      if (container.tagName === 'TABLE') return;
+      var cls = getClass(container).toLowerCase();
+      var children = Array.prototype.filter.call(container.children, function(c) {
         return c.nodeType === Node.ELEMENT_NODE;
       });
+      if (children.length < 4) return;
 
-      // 检测行结构：如果每个子元素内部有类似 cell 的 class
-      if (directChildren.length >= 3) {
-        for (var ri = 0; ri < directChildren.length; ri++) {
-          var rowEl = directChildren[ri];
-          var rowCls = getClass(rowEl).toLowerCase();
-          // 如果是 row 容器，展开其子元素作为单元格
-          if (/row|tr/i.test(rowCls)) {
-            var cells = Array.prototype.filter.call(rowEl.children, function(c) {
-              return c.nodeType === Node.ELEMENT_NODE && /cell|col|td|th/i.test(getClass(c).toLowerCase());
-            });
-            if (cells.length >= 2) { rows.push(cells); continue; }
+      // Class-less cells: check if all direct children are same-tag with similar structure
+      var firstTag = children[0].tagName;
+      var allSameTag = children.every(function(c) { return c.tagName === firstTag; });
+      if (allSameTag) {
+        // Look for repeating class pattern (e.g. every 3 divs have same set of classes)
+        var classSig = [];
+        for (var ci = 0; ci < Math.min(children.length, 20); ci++) {
+          classSig.push(getClass(children[ci]).toLowerCase().replace(/\d+/g, '#'));
+        }
+        var pat = detectRepeat(classSig);
+        if (pat > 0 && pat <= 6) {
+          var nCols = pat;
+          var nRows = Math.floor(children.length / nCols);
+          if (nRows >= 2 && nRows * nCols === children.length) {
+            var table = document.createElement('table');
+            var thead = document.createElement('thead');
+            var tbody = document.createElement('tbody');
+            for (var ri = 0; ri < nRows; ri++) {
+              var tr = document.createElement('tr');
+              for (var ci2 = 0; ci2 < nCols; ci2++) {
+                var idx = ri * nCols + ci2;
+                var tagName = ri === 0 ? 'th' : 'td';
+                var cell = document.createElement(tagName);
+                cell.innerHTML = children[idx].innerHTML;
+                tr.appendChild(cell);
+              }
+              if (ri === 0) thead.appendChild(tr); else tbody.appendChild(tr);
+            }
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            while (container.firstChild) { container.removeChild(container.firstChild); }
+            container.appendChild(table);
+            return;
           }
-          // 如果当前元素本身就是 cell 且和相邻元素结构一致，按固定列数分组
-          // 不做复杂检测，交给 Turndown
         }
       }
+    });
 
+    // Pass 2: 找 row 结构的容器
+    root.querySelectorAll('[class*="table"], [class*="tbl"], [class*="grid"]').forEach(function(container) {
+      if (container.tagName === 'TABLE') return;
+      var children = Array.prototype.filter.call(container.children, function(c) {
+        return c.nodeType === Node.ELEMENT_NODE;
+      });
+      if (children.length < 2) return;
+      var rows = [];
+      for (var ri = 0; ri < children.length; ri++) {
+        var rowEl = children[ri];
+        var rowCls = getClass(rowEl).toLowerCase();
+        if (/row|tr/i.test(rowCls)) {
+          var cells = Array.prototype.filter.call(rowEl.children, function(c) {
+            return c.nodeType === Node.ELEMENT_NODE;
+          });
+          if (cells.length >= 2) { rows.push(cells); }
+        } else if (/cell|col|td|th/i.test(rowCls)) {
+          // This element is itself a cell — accumulate until we hit a pattern
+        }
+      }
       if (rows.length >= 2 && rows[0].length >= 2) {
         var table = document.createElement('table');
         var thead = document.createElement('thead');
@@ -175,8 +241,8 @@
         for (var ri2 = 0; ri2 < rows.length; ri2++) {
           var tr = document.createElement('tr');
           for (var ci = 0; ci < rows[ri2].length; ci++) {
-            var tag = ri2 === 0 ? 'th' : 'td';
-            var cell = document.createElement(tag);
+            var tagName2 = ri2 === 0 ? 'th' : 'td';
+            var cell = document.createElement(tagName2);
             cell.innerHTML = rows[ri2][ci].innerHTML;
             tr.appendChild(cell);
           }
@@ -184,35 +250,71 @@
         }
         table.appendChild(thead);
         table.appendChild(tbody);
-        // 清空容器并用 table 替换
         while (container.firstChild) { container.removeChild(container.firstChild); }
         container.appendChild(table);
       }
     });
   }
 
-  /** 将 code-block 头部中的语言名移到 <code> 的 class 上，移除"运行"按钮 */
+  function detectRepeat(arr) {
+    for (var p = 1; p <= Math.floor(arr.length / 2); p++) {
+      var ok = true;
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] !== arr[i % p]) { ok = false; break; }
+      }
+      if (ok) return p;
+    }
+    return 0;
+  }
+
+  /** 将 code-block 头部中的语言名移到 <code> 的 class 上，移除"运行"按钮和零散文本 */
   function normalizeCodeBlocks(root) {
-    root.querySelectorAll('pre').forEach(function(pre) {
-      var prev = pre.previousElementSibling;
-      if (prev) {
-        var prevCls = getClass(prev).toLowerCase();
-        var prevText = (prev.textContent || '').trim();
-        if (prevText && prevText.length < 30 && /code|lang|language|header/i.test(prevCls)) {
-          // 提取语言名
-          var lang = prevText.replace(/运行|运行代码|复制|copy|code/gi, '').trim();
-          var codeEl = pre.querySelector('code');
-          if (codeEl && lang) {
-            codeEl.className = (codeEl.className || '') + ' language-' + lang;
+    // 收集所有 pre 并处理它们的前驱兄弟节点
+    var pres = root.querySelectorAll('pre');
+    for (var pi = 0; pi < pres.length; pi++) {
+      var pre = pres[pi];
+      var codeEl = pre.querySelector('code');
+      var lang = '';
+
+      // 方法1：从代码头部容器提取语言
+      var codeContainer = pre.closest('[class*="code"]');
+      if (codeContainer) {
+        codeContainer.querySelectorAll('span, div, button').forEach(function(el) {
+          var t = (el.textContent || '').trim().replace(/运行$|运行代码$|^copy$/i, '').trim();
+          var knownLangs = /^(javascript|python|java|bash|sh|html|css|json|xml|markdown|md|sql|go|rust|c|cpp|csharp|ruby|php|swift|kotlin|typescript|ts|yaml|shell|text|plaintext)$/i;
+          if (knownLangs.test(t)) { lang = t.toLowerCase(); el.remove(); }
+          else if (/^运行$|^运行代码$|^copy$/i.test(t)) { el.remove(); }
+        });
+      }
+
+      // 方法2：从 pre 的直接前驱兄弟提取
+      if (!lang) {
+        var check = pre.previousElementSibling;
+        var tried = 0;
+        while (check && tried < 2) {
+          var txt = (check.textContent || '').trim();
+          var cls2 = getClass(check).toLowerCase();
+          if (txt && txt.length < 20 && !/<[^>]+>/.test(txt) && /code|lang|language|header|label/i.test(cls2)) {
+            lang = txt.replace(/运行|运行代码|复制|copy|code/gi, '').trim();
+            if (lang) check.remove();
           }
-          prev.remove();
+          check = check.previousElementSibling;
+          tried++;
         }
       }
-    });
-    // 移除散布在 code 容器附近的纯文本"运行"等
-    root.querySelectorAll('span, div, button').forEach(function(e) {
-      var t = (e.textContent || '').trim();
-      if (/^运行$|^运行代码$|^copy$/i.test(t)) { e.remove(); }
+
+      if (codeEl && lang) {
+        codeEl.className = (codeEl.className || '') + ' language-' + lang;
+      }
+    }
+
+    // 最后一遍：清理任何残留的独立语言名 div/span（紧邻 pre 之前的）
+    // Doubao pattern: <div class="code_header"><span>python</span><button>运行</button></div><pre>...
+    root.querySelectorAll('[class*="code"]').forEach(function(cc) {
+      cc.querySelectorAll('button, span, div').forEach(function(el) {
+        var t = (el.textContent || '').trim();
+        if (/^运行$|^运行代码$|^copy$/i.test(t)) { el.remove(); }
+      });
     });
   }
 
@@ -243,10 +345,12 @@
 
   function extractContent(el) {
     const clone = el.cloneNode(true);
-    // 预处理必须在 removeUIElements 之前（需要保留代码头部信息）
-    normalizeCodeBlocks(clone);
-    convertDivTables(clone);
-    normalizeHeadings(clone);
+    // __SELF__ 模式预处理
+    if (PLATFORM.markdown === '__SELF__') {
+      normalizeCodeBlocks(clone);
+      convertDivTables(clone);
+      normalizeHeadings(clone);
+    }
     removeThinking(clone);
     removeUIElements(clone);
     removeCitationLinks(clone);
@@ -317,14 +421,24 @@
    */
   function convertKatexToLatex(root) {
     root.querySelectorAll('.katex').forEach(katexEl => {
-      const annotation = katexEl.querySelector('annotation[encoding="application/x-tex"]');
-      if (annotation) {
-        const latex = annotation.textContent.trim();
-        const isDisplay = katexEl.closest('.katex-display') !== null ||
-                          katexEl.classList.contains('katex-display');
-        const wrapper = isDisplay ? ('$$\n' + latex + '\n$$') : ('$' + latex + '$');
-        const textNode = document.createTextNode(wrapper);
+      var annotation = katexEl.querySelector('annotation[encoding="application/x-tex"]');
+      if (annotation && annotation.textContent.trim()) {
+        var latex = annotation.textContent.trim();
+        var isDisplay = katexEl.closest('.katex-display') !== null ||
+                        katexEl.classList.contains('katex-display');
+        var wrapper = isDisplay ? ('$$\n' + latex + '\n$$') : ('$' + latex + '$');
+        var textNode = document.createTextNode(wrapper);
         katexEl.parentNode.replaceChild(textNode, katexEl);
+      } else {
+        // Fallback: no annotation → extract rendered math text and wrap in $
+        var text = (katexEl.textContent || '').trim();
+        if (text) {
+          var isDisplay2 = katexEl.closest('.katex-display') !== null ||
+                           katexEl.classList.contains('katex-display');
+          var wrapper2 = isDisplay2 ? ('$$\n' + text + '\n$$') : ('$' + text + '$');
+          var textNode2 = document.createTextNode(wrapper2);
+          katexEl.parentNode.replaceChild(textNode2, katexEl);
+        }
       }
     });
     root.querySelectorAll('script[type="math/tex"], script[type="math/tex; mode=display"]').forEach(script => {
@@ -537,15 +651,17 @@
     md = stripCitations(md);
     md = stripFooterMetadata(md);
     md = stripSourceLinks(md);
+    md = stripEmptyHeadings(md);
     return md.trim();
   }
 
   function stripMetadata(md) {
-    const lines = md.split('\n');
-    const cleanLines = [];
-    let headerDone = false;
-    for (const line of lines) {
-      const t = line.trim();
+    var lines = md.split('\n');
+    var cleanLines = [];
+    var headerDone = false;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var t = line.trim();
       if (headerDone) { cleanLines.push(line); continue; }
       if (t.length === 0) continue;
       if (/^已思考|^已深度思考|^深度思考|^思考过程|^思考中|^(已)?搜索到\s*\d+\s*个网页|^浏览\s*\d+\s*个页面|^已搜索|^搜索完成|^深度搜索|^正在搜索|^开始搜索|^\d+\s*个搜索结果|^用时\s*\d+\s*秒|^搜索关键词/.test(t)) continue;
@@ -553,6 +669,10 @@
       cleanLines.push(line);
     }
     return cleanLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  function stripEmptyHeadings(md) {
+    return md.replace(/^(\s*#{1,6}\s*[\r\n]+){2,}/gm, '').replace(/^\s*#{1,6}\s*$/gm, '');
   }
 
   function stripSearchPreamble(md) {
@@ -796,9 +916,11 @@
     var mdEl = getMsgMarkdownEl(messageEl);
     if (!mdEl) { btn.innerHTML = '❌'; log('directExport: 未找到 Markdown 元素, msgEl tag=', messageEl.tagName, 'class=', getClass(messageEl).substring(0, 60)); return; }
     var clone = mdEl.cloneNode(true);
-    normalizeCodeBlocks(clone);
-    convertDivTables(clone);
-    normalizeHeadings(clone);
+    if (PLATFORM.markdown === '__SELF__') {
+      normalizeCodeBlocks(clone);
+      convertDivTables(clone);
+      normalizeHeadings(clone);
+    }
     removeThinking(clone); removeUIElements(clone); removeCitationLinks(clone);
     convertKatexToLatex(clone);
     var md = PLATFORM.markdown === '__SELF__' ? htmlToMarkdown(clone) : elementToMarkdown(clone);
