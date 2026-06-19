@@ -207,7 +207,16 @@
         case 'h4': md += '\n#### ' + text + '\n'; break;
         case 'h5': md += '\n##### ' + text + '\n'; break;
         case 'h6': md += '\n###### ' + text + '\n'; break;
-        case 'p': md += '\n' + processInline(child) + '\n'; break;
+        case 'p':
+          var pCls = getClass(child).toLowerCase();
+          if (pCls.includes('blockquote') || pCls.includes('quote')) {
+            var pbqMd = elementToMarkdown(child);
+            pbqMd = pbqMd.split('\n').map(function(l) { return '> ' + l; }).join('\n');
+            md += '\n' + pbqMd + '\n';
+          } else {
+            md += '\n' + processInline(child) + '\n';
+          }
+          break;
         case 'pre': md += processCode(child); break;
         case 'ul': md += processList(child, false); break;
         case 'ol': md += processList(child, true); break;
@@ -220,7 +229,12 @@
         case 'hr': md += '\n---\n'; break;
         case 'details': md += elementToMarkdown(child) + '\n'; break;
         case 'div': case 'section': case 'article':
-          if (looksLikeDivTable(child)) md += processDivTable(child) + '\n';
+          var cls = getClass(child).toLowerCase();
+          if (cls.includes('blockquote') || cls.includes('quote')) {
+            var bqMd = elementToMarkdown(child);
+            bqMd = bqMd.split('\n').map(function(l) { return '> ' + l; }).join('\n');
+            md += '\n' + bqMd + '\n';
+          } else if (looksLikeDivTable(child)) md += processDivTable(child) + '\n';
           else md += elementToMarkdown(child) + '\n';
           break;
         default: md += text + '\n';
@@ -252,14 +266,36 @@
     return result;
   }
 
-  function processCode(preEl) {
-    const codeEl = preEl.querySelector('code');
-    const lang = (codeEl?.className?.match(/language-(\w+)/) || [])[1] || '';
-    var raw = (codeEl?.innerText || codeEl?.textContent || preEl?.innerText || preEl?.textContent || '');
-    var lines = raw.split('\n');
-    if (lines.length > 1 || raw.length < 200) {
-      raw = raw.replace(/\n\s*$/g, '').replace(/^\s*\n/g, '');
+  function extractCodeText(el) {
+    // Walk children: each line-wrapper (div/span.line/p) gets its own line
+    if (!el) return '';
+    var lines = [];
+    function walk(n) {
+      for (var ci = 0; ci < n.childNodes.length; ci++) {
+        var c = n.childNodes[ci];
+        if (c.nodeType === Node.TEXT_NODE) { lines.push(c.textContent); continue; }
+        if (c.nodeType !== Node.ELEMENT_NODE) continue;
+        var tag = c.tagName.toLowerCase();
+        // Code header / toolbar — skip
+        if (/code-header|code-toolbar|action-bar|clipboard|copy-btn|icon/i.test(c.className || '')) continue;
+        if (tag === 'br') { lines.push(''); continue; }
+        // Line-level wrapper: append newline after processing
+        if (tag === 'span' || tag === 'div' || tag === 'p') {
+          var sub = c.textContent || '';
+          // Check if this is a line-number or gutter element
+          if (/line-number|gutter|ln/i.test(c.className || '')) continue;
+          lines.push(sub);
+        }
+      }
     }
+    walk(el);
+    return lines.join('\n');
+  }
+
+  function processCode(preEl) {
+    var codeEl = preEl.querySelector('code');
+    var lang = (codeEl && codeEl.className && codeEl.className.match(/language-(\w+)/) || [])[1] || '';
+    var raw = extractCodeText(codeEl || preEl);
     return '\n```' + lang + '\n' + raw.trim() + '\n```\n';
   }
 
@@ -291,8 +327,11 @@
 
   function processTable(tableEl) {
     var md = '\n';
-    tableEl.querySelectorAll('tr').forEach(function(row, i) {
+    var rows = tableEl.querySelectorAll('tr');
+    if (rows.length === 0) { rows = tableEl.querySelectorAll('thead tr, tbody tr, tr'); }
+    Array.from(rows).forEach(function(row, i) {
       var cells = row.querySelectorAll('th, td');
+      if (cells.length === 0) return;
       md += '| ' + Array.from(cells).map(function(c) { return getText(c); }).join(' | ') + ' |\n';
       if (i === 0) md += '| ' + Array.from(cells).map(function() { return '---'; }).join(' | ') + ' |\n';
     });
