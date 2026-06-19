@@ -243,24 +243,52 @@
 
   function extractContent(el) {
     const clone = el.cloneNode(true);
-    // Step 0 (must be first): KaTeX → LaTeX before any DOM changes
     convertKatexToLatex(clone);
-    // Step 1: normalize structures for __SELF__ platforms (Doubao)
     if (PLATFORM.markdown === '__SELF__') {
+      dumpDoubaoDOM(clone);
       normalizeCodeBlocks(clone);
       reconstructDivTables(clone);
       normalizeHeadings(clone);
     }
-    // Step 2: remove non-content elements
     removeThinking(clone);
     removeUIElements(clone);
     removeCitationLinks(clone);
-    // Step 3: convert to markdown
     const html = clone.innerHTML.trim();
     var md = PLATFORM.markdown === '__SELF__'
       ? cleanContent(htmlToMarkdown(clone))
       : cleanContent(elementToMarkdown(clone));
     return { html, md };
+  }
+
+  /** Diagnostic: dump DOM structure near table-looking areas */
+  function dumpDoubaoDOM(root) {
+    var candidates = [];
+    root.querySelectorAll('div').forEach(function(div) {
+      var kids = [];
+      for (var i = 0; i < div.children.length; i++) {
+        if (div.children[i].nodeType === Node.ELEMENT_NODE) kids.push(div.children[i]);
+      }
+      if (kids.length >= 3) {
+        var tags = {};
+        kids.forEach(function(k) { tags[k.tagName] = (tags[k.tagName] || 0) + 1; });
+        for (var t in tags) {
+          if (tags.hasOwnProperty(t) && tags[t] === kids.length) { candidates.push({ el: div, n: kids.length, tag: t }); break; }
+        }
+      }
+    });
+    candidates.sort(function(a, b) { return b.n - a.n; });
+    var shown = 0;
+    log('=== 豆包 DOM 诊断 ===');
+    for (var ci = 0; ci < Math.min(candidates.length, 8); ci++) {
+      var c = candidates[ci];
+      if (c.n < 4) continue;
+      var cls = getClass(c.el).substring(0, 60);
+      log('  [' + ci + '] n=' + c.n + ' tag=' + c.tag + ' class="' + cls + '"');
+      log('    child[0] tag=' + c.el.children[0].tagName + ' class="' + getClass(c.el.children[0]).substring(0, 50) + '" text="' + (c.el.children[0].textContent || '').trim().substring(0, 40) + '"');
+      log('    child[1] tag=' + c.el.children[1].tagName + ' class="' + getClass(c.el.children[1]).substring(0, 50) + '" text="' + (c.el.children[1].textContent || '').trim().substring(0, 40) + '"');
+      shown++;
+    }
+    if (!shown) log('  (无候选)');
   }
 
   /** Reconstruct tables: detect flat-div grids and wrap in <table>.
