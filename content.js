@@ -267,32 +267,49 @@
    *  Strategy: find containers whose direct children are same-tag divs
    *  with similar structure, detect column count via text-length histogram. */
   function reconstructDivTables(root) {
-    var allDivs = root.querySelectorAll('div, section');
     var candidates = [];
-    for (var di = 0; di < allDivs.length; di++) {
-      var c = allDivs[di];
-      if (c.tagName === 'TABLE') continue;
-      var kids = Array.prototype.filter.call(c.children, function(k) {
-        return k.nodeType === Node.ELEMENT_NODE;
-      });
-      if (kids.length < 4) continue;
+    // Search ALL divs (not just root) — Doubao tables are nested deep
+    root.querySelectorAll('div').forEach(function(c) {
+      var kids = [];
+      for (var ki = 0; ki < c.children.length; ki++) {
+        if (c.children[ki].nodeType === Node.ELEMENT_NODE) kids.push(c.children[ki]);
+      }
+      if (kids.length < 4) return;
+      // All same tag
       var firstTag = kids[0].tagName;
-      if (!kids.every(function(k) { return k.tagName === firstTag; })) continue;
-      if (!kids.every(function(k) { return (k.textContent || '').length < 500 && k.childElementCount < 10; })) continue;
-      // Must NOT contain sub-tables, pre, ul, ol (structural elements inside cells = not a table)
-      if (c.querySelector('table, pre, ul, ol, img, svg')) continue;
-
+      if (!kids.every(function(k) { return k.tagName === firstTag; })) return;
+      // Cell-like: short text, few children, no structural elements inside individual cells
+      if (!kids.every(function(k) {
+        return (k.textContent || '').length < 500 && k.childElementCount < 10 &&
+               !k.querySelector('pre, ul, ol, h1, h2, h3, h4, h5, h6, table, img, svg');
+      })) return;
+      // Try column counts 2-6
       var bestCols = 0;
       for (var cols = 2; cols <= Math.min(6, Math.floor(kids.length / 2)); cols++) {
-        if (kids.length % cols === 0 && Math.floor(kids.length / cols) >= 2) {
-          bestCols = cols; break;
+        if (kids.length % cols === 0) { bestCols = cols; break; }
+      }
+      if (bestCols) {
+        var rows = kids.length / bestCols;
+        if (rows >= 2) candidates.push({ container: c, cols: bestCols, n: kids.length });
+      }
+    });
+
+    if (!candidates.length) { log('reconstructDivTables: 未检测到表格'); return; }
+
+    // Deduplicate: if one candidate contains another, keep the inner one
+    var keep = [];
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var isContained = false;
+      for (var cj = 0; cj < candidates.length; cj++) {
+        if (ci !== cj && candidates[cj].container.contains(candidates[ci].container)) {
+          isContained = true; break;
         }
       }
-      if (bestCols) candidates.push({ container: c, cols: bestCols, n: kids.length });
+      if (!isContained) keep.push(candidates[ci]);
     }
 
-    for (var ci = 0; ci < candidates.length; ci++) {
-      var cand = candidates[ci], cols = cand.cols;
+    for (ci = 0; ci < keep.length; ci++) {
+      var cand = keep[ci], cols = cand.cols;
       var rows = cand.n / cols;
       var table = document.createElement('table');
       var thead = document.createElement('thead');
@@ -313,8 +330,7 @@
       while (cand.container.firstChild) cand.container.removeChild(cand.container.firstChild);
       cand.container.appendChild(table);
     }
-    if (candidates.length) log('reconstructDivTables: 重构', candidates.length, '个表格 (列数:', candidates.map(function(c) { return c.cols; }).join(','), ')');
-    else log('reconstructDivTables: 未检测到表格');
+    log('reconstructDivTables: 重构', keep.length, '个表格 (列数:', keep.map(function(c) { return c.cols; }).join(','), ')');
   }
 
   /** 移除引用链接：sup 数字、短链接、citation 类元素 */
@@ -375,32 +391,40 @@
    * 将 KaTeX 渲染的 HTML 还原为 LaTeX 语法 ($...$ / $$...$$)
    */
   function convertKatexToLatex(root) {
-    root.querySelectorAll('.katex').forEach(katexEl => {
-      var annotation = katexEl.querySelector('annotation[encoding="application/x-tex"]');
-      if (annotation && annotation.textContent.trim()) {
-        var latex = annotation.textContent.trim();
-        var isDisplay = katexEl.closest('.katex-display') !== null ||
-                        katexEl.classList.contains('katex-display');
-        var wrapper = isDisplay ? ('$$\n' + latex + '\n$$') : ('$' + latex + '$');
-        var textNode = document.createTextNode(wrapper);
-        katexEl.parentNode.replaceChild(textNode, katexEl);
-      } else {
-        // Fallback: no annotation → extract rendered math text and wrap in $
-        var text = (katexEl.textContent || '').trim();
-        if (text) {
-          var isDisplay2 = katexEl.closest('.katex-display') !== null ||
-                           katexEl.classList.contains('katex-display');
-          var wrapper2 = isDisplay2 ? ('$$\n' + text + '\n$$') : ('$' + text + '$');
-          var textNode2 = document.createTextNode(wrapper2);
-          katexEl.parentNode.replaceChild(textNode2, katexEl);
-        }
+    root.querySelectorAll('.katex, .katex-display').forEach(function(katexEl) {
+      var isDisplay = katexEl.closest('.katex-display') !== null ||
+                      katexEl.classList.contains('katex-display');
+      // 1. Try <annotation encoding="application/x-tex">
+      var ann = katexEl.querySelector('annotation[encoding="application/x-tex"]');
+      if (ann && ann.textContent.trim()) {
+        var latex = ann.textContent.trim();
+        katexEl.parentNode.replaceChild(document.createTextNode(isDisplay ? ('$$\n' + latex + '\n$$') : ('$' + latex + '$')), katexEl);
+        return;
       }
+      // 2. Try data-latex attribute (KaTeX auto-render)
+      var dl = katexEl.getAttribute('data-latex');
+      if (dl && dl.trim()) {
+        katexEl.parentNode.replaceChild(document.createTextNode(isDisplay ? ('$$\n' + dl.trim() + '\n$$') : ('$' + dl.trim() + '$')), katexEl);
+        return;
+      }
+      // 3. Try hidden .katex-mathml <math> → annotation
+      var ml = katexEl.querySelector('.katex-mathml annotation[encoding="application/x-tex"]');
+      if (ml && ml.textContent.trim()) {
+        katexEl.parentNode.replaceChild(document.createTextNode(isDisplay ? ('$$\n' + ml.textContent.trim() + '\n$$') : ('$' + ml.textContent.trim() + '$')), katexEl);
+        return;
+      }
+      // 4. Generic: any annotation
+      var ga = katexEl.querySelector('annotation');
+      if (ga && ga.textContent.trim()) {
+        katexEl.parentNode.replaceChild(document.createTextNode(isDisplay ? ('$$\n' + ga.textContent.trim() + '\n$$') : ('$' + ga.textContent.trim() + '$')), katexEl);
+        return;
+      }
+      // 5. Last resort: remove the rendered math HTML, insert placeholder
+      katexEl.parentNode.replaceChild(document.createTextNode(isDisplay ? '$$\n[MATH]\n$$' : '$MATH$'), katexEl);
     });
-    root.querySelectorAll('script[type="math/tex"], script[type="math/tex; mode=display"]').forEach(script => {
-      const latex = script.textContent.trim();
-      const isDisplay = script.getAttribute('type') === 'math/tex; mode=display';
-      const wrapper = isDisplay ? ('$$\n' + latex + '\n$$') : ('$' + latex + '$');
-      script.parentNode.replaceChild(document.createTextNode(wrapper), script);
+    root.querySelectorAll('script[type="math/tex"], script[type="math/tex; mode=display"]').forEach(function(script) {
+      var latex = script.textContent.trim();
+      script.parentNode.replaceChild(document.createTextNode((script.getAttribute('type') === 'math/tex; mode=display' ? '$$\n' + latex + '\n$$' : '$' + latex + '$')), script);
     });
     convertLatexDelimiters(root);
   }
