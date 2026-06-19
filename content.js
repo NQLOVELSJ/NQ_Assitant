@@ -266,36 +266,14 @@
     return result;
   }
 
-  function extractCodeText(el) {
-    // Walk children: each line-wrapper (div/span.line/p) gets its own line
-    if (!el) return '';
-    var lines = [];
-    function walk(n) {
-      for (var ci = 0; ci < n.childNodes.length; ci++) {
-        var c = n.childNodes[ci];
-        if (c.nodeType === Node.TEXT_NODE) { lines.push(c.textContent); continue; }
-        if (c.nodeType !== Node.ELEMENT_NODE) continue;
-        var tag = c.tagName.toLowerCase();
-        // Code header / toolbar — skip
-        if (/code-header|code-toolbar|action-bar|clipboard|copy-btn|icon/i.test(c.className || '')) continue;
-        if (tag === 'br') { lines.push(''); continue; }
-        // Line-level wrapper: append newline after processing
-        if (tag === 'span' || tag === 'div' || tag === 'p') {
-          var sub = c.textContent || '';
-          // Check if this is a line-number or gutter element
-          if (/line-number|gutter|ln/i.test(c.className || '')) continue;
-          lines.push(sub);
-        }
-      }
-    }
-    walk(el);
-    return lines.join('\n');
-  }
-
   function processCode(preEl) {
     var codeEl = preEl.querySelector('code');
-    var lang = (codeEl && codeEl.className && codeEl.className.match(/language-(\w+)/) || [])[1] || '';
-    var raw = extractCodeText(codeEl || preEl);
+    var lang = '';
+    if (codeEl) {
+      var cm = codeEl.className && codeEl.className.match(/language-(\w+)/);
+      if (cm) lang = cm[1];
+    }
+     var raw = (codeEl ? codeEl.textContent : preEl.textContent) || '';
     return '\n```' + lang + '\n' + raw.trim() + '\n```\n';
   }
 

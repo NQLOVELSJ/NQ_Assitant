@@ -1,0 +1,18 @@
+Markdown 完整语法测试文档本文档用于测试 AI 对话导出为 Word 插件 的功能，涵盖了几乎所有标准 Markdown 语法元素。1. 标题（Heading）一级标题二级标题三级标题四级标题五级标题六级标题2. 段落与文本格式普通段落，包含 粗体（**粗体**）、斜体（*斜体*）、粗斜体、删除线（~~删除线~~）、内联代码（内联代码）。还有下划线（部分实现使用 <u> 标签）：这是下划线，以及高亮（==高亮==，非标准但常见）。3. 列表（List）无序列表项目一项目二嵌套子项 A嵌套子项 B项目三有序列表第一步第二步子步骤 2.1子步骤 2.2第三步任务列表（Task List）已完成任务未完成任务子任务子任务完成4. 引用（Blockquote）这是一段引用。可以跨行，也可以包含 格式化 内容。嵌套引用（二级）三级引用5. 代码块（Code Block）内联代码使用 console.log('Hello') 输出信息。围栏代码块javascript// 带语法高亮的 JavaScriptfunction greet(name) { console.log(`Hello, ${name}!`);}greet('World');python# Python 示例def fibonacci(n): a, b = 0, 1 for _ in range(n): yield a a, b = b, a + bbash$ echo "Shell 代码"$ ls -la无语言代码块：
+text这是纯文本代码块无需指定语言6. 表格（Table）左对齐居中对齐右对齐单元格1单元格2单元格3长文本内容更多内容数值 123粗体斜体内联7. 链接（Link）自动链接：https://www.example.com锚点链接（内部跳转）：回到顶部8. 图片（Image）[https://via.placeholder.com/150]
+[https://images/screenshot.png] （若文件不存在则显示 alt）9. 水平分隔线（Horizontal Rule）10. 脚注（Footnote）这是一段带脚注的文本[^1]。
+还有第二个脚注[^2]。
+[^1]: 这是脚注内容，可以包含 格式。
+[^2]: 另一个脚注。11. 定义列表（Definition List，非标准但常用）术语 A
+: 定义 A1
+: 定义 A2术语 B
+: 定义 B12. 数学公式（LaTeX，需渲染器支持）行内公式：块级公式：
+矩阵示例：
+$\begin{pmatrix}
+a & b \
+c & d
+\end{pmatrix}$13. 表情符号（Emoji）:smile::heart::thumbsup::rocket:
+直接输入：😊 ❤️ 👍 🚀14. HTML 标签（内嵌）红色文字
+Ctrl + C
+HTML
+高亮背景（部分支持）15. 转义字符反斜杠转义星号 _ 下划线 # 井号 ` 反引号16. 其他扩展语法（常见于 GitHub/GitLab）任务列表（已包含）提及用户（@username）引用提交（SHA: a1b2c3d）折叠块（Details）17. 混合嵌套测试引用中的列表：项1项2有序子项引用中的代码：print("hello")表格内嵌格式代码粗https://via.placeholder.com/2018. 长文本与分隔Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.测试结束 —— 上述所有元素均应正确转换为 Word 文档中的对应格式。如果插件支持导出为 .docx，请验证样式、表格、图片占位、代码块格式、数学公式等是否保留。祝测试顺利！ 🎉
