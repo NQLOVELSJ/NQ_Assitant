@@ -137,14 +137,121 @@
     return elementToMarkdown(el);
   }
 
+  /** 将 div 表格（grid/flex布局的假表格）转换为 HTML <table> */
+  function convertDivTables(root) {
+    // 策略：找连续的同级 div 子元素，如果它们有类似表格的 class，封装为 <table>
+    root.querySelectorAll('[class*="table"], [class*="tbl"], [class*="grid"]').forEach(function(container) {
+      if (container.tagName === 'TABLE') return;
+      // 只处理包含表格特征类名的容器
+      var cls = getClass(container).toLowerCase();
+      if (!/table|tbl|grid|row|cell/i.test(cls)) return;
+
+      var rows = [];
+      var directChildren = Array.prototype.filter.call(container.children, function(c) {
+        return c.nodeType === Node.ELEMENT_NODE;
+      });
+
+      // 检测行结构：如果每个子元素内部有类似 cell 的 class
+      if (directChildren.length >= 3) {
+        for (var ri = 0; ri < directChildren.length; ri++) {
+          var rowEl = directChildren[ri];
+          var rowCls = getClass(rowEl).toLowerCase();
+          // 如果是 row 容器，展开其子元素作为单元格
+          if (/row|tr/i.test(rowCls)) {
+            var cells = Array.prototype.filter.call(rowEl.children, function(c) {
+              return c.nodeType === Node.ELEMENT_NODE && /cell|col|td|th/i.test(getClass(c).toLowerCase());
+            });
+            if (cells.length >= 2) { rows.push(cells); continue; }
+          }
+          // 如果当前元素本身就是 cell 且和相邻元素结构一致，按固定列数分组
+          // 不做复杂检测，交给 Turndown
+        }
+      }
+
+      if (rows.length >= 2 && rows[0].length >= 2) {
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var tbody = document.createElement('tbody');
+        for (var ri2 = 0; ri2 < rows.length; ri2++) {
+          var tr = document.createElement('tr');
+          for (var ci = 0; ci < rows[ri2].length; ci++) {
+            var tag = ri2 === 0 ? 'th' : 'td';
+            var cell = document.createElement(tag);
+            cell.innerHTML = rows[ri2][ci].innerHTML;
+            tr.appendChild(cell);
+          }
+          if (ri2 === 0) thead.appendChild(tr); else tbody.appendChild(tr);
+        }
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        // 清空容器并用 table 替换
+        while (container.firstChild) { container.removeChild(container.firstChild); }
+        container.appendChild(table);
+      }
+    });
+  }
+
+  /** 将 code-block 头部中的语言名移到 <code> 的 class 上，移除"运行"按钮 */
+  function normalizeCodeBlocks(root) {
+    root.querySelectorAll('pre').forEach(function(pre) {
+      var prev = pre.previousElementSibling;
+      if (prev) {
+        var prevCls = getClass(prev).toLowerCase();
+        var prevText = (prev.textContent || '').trim();
+        if (prevText && prevText.length < 30 && /code|lang|language|header/i.test(prevCls)) {
+          // 提取语言名
+          var lang = prevText.replace(/运行|运行代码|复制|copy|code/gi, '').trim();
+          var codeEl = pre.querySelector('code');
+          if (codeEl && lang) {
+            codeEl.className = (codeEl.className || '') + ' language-' + lang;
+          }
+          prev.remove();
+        }
+      }
+    });
+    // 移除散布在 code 容器附近的纯文本"运行"等
+    root.querySelectorAll('span, div, button').forEach(function(e) {
+      var t = (e.textContent || '').trim();
+      if (/^运行$|^运行代码$|^copy$/i.test(t)) { e.remove(); }
+    });
+  }
+
+  /** 将有 heading 样式的 div 转换为 h1-h6 */
+  function normalizeHeadings(root) {
+    var headingClassMap = {
+      'heading-1': 'h1', 'heading1': 'h1', 'h1': 'h1',
+      'heading-2': 'h2', 'heading2': 'h2', 'h2': 'h2',
+      'heading-3': 'h3', 'heading3': 'h3', 'h3': 'h3',
+      'heading-4': 'h4', 'heading4': 'h4', 'h4': 'h4',
+      'heading-5': 'h5', 'heading5': 'h5', 'h5': 'h5',
+      'heading-6': 'h6', 'heading6': 'h6', 'h6': 'h6'
+    };
+    // This is only needed if headings aren't real <h1>-<h6> tags
+    // Doubao uses <h1>-<h6>, so this is a no-op for Doubao but helps other platforms
+    root.querySelectorAll('div, p, span').forEach(function(el) {
+      var cls = getClass(el).toLowerCase();
+      for (var key in headingClassMap) {
+        if (headingClassMap.hasOwnProperty(key) && cls.indexOf(key) !== -1) {
+          var replacement = document.createElement(headingClassMap[key]);
+          while (el.firstChild) { replacement.appendChild(el.firstChild); }
+          if (el.parentNode) { el.parentNode.replaceChild(replacement, el); }
+          break;
+        }
+      }
+    });
+  }
+
   function extractContent(el) {
     const clone = el.cloneNode(true);
+    // 预处理必须在 removeUIElements 之前（需要保留代码头部信息）
+    normalizeCodeBlocks(clone);
+    convertDivTables(clone);
+    normalizeHeadings(clone);
     removeThinking(clone);
     removeUIElements(clone);
     removeCitationLinks(clone);
     convertKatexToLatex(clone);
     const html = clone.innerHTML.trim();
-    // __SELF__ 模式（豆包）：使用 Turndown 进行 HTML→Markdown 转换
     var md = PLATFORM.markdown === '__SELF__'
       ? cleanContent(htmlToMarkdown(clone))
       : cleanContent(elementToMarkdown(clone));
@@ -171,19 +278,37 @@
 
   /** 移除所有UI元素（非内容元素） */
   function removeUIElements(root) {
-    root.querySelectorAll('button, [role="button"], svg, [class*="icon-btn"], [class*="copy-btn"], [class*="download"], [class*="clipboard"]').forEach(e => e.remove());
-    root.querySelectorAll('[class*="toolbar"], [class*="action-bar"], [class*="code-header"]').forEach(e => e.remove());
-    // 代码高亮 span（hljs, prism, shiki 等）
-    root.querySelectorAll('span[class*="hljs-"], span[class*="token-"], span[class*="syntax-"]').forEach(e => {
-      e.replaceWith.apply(e, Array.from(e.childNodes));
+    // 移除按钮、图标、工具栏
+    root.querySelectorAll('button, [role="button"], svg, [class*="icon-btn"], [class*="copy-btn"], [class*="download"], [class*="clipboard"], [class*="run-btn"], [class*="execute-btn"]').forEach(function(e) { e.remove(); });
+    root.querySelectorAll('[class*="toolbar"], [class*="action-bar"], [class*="code-header"], [class*="code-toolbar"]').forEach(function(e) { e.remove(); });
+    // 移除包含"运行"文字的按钮/label元素
+    root.querySelectorAll('button, span, div').forEach(function(e) {
+      var t = (e.textContent || '').trim();
+      if (t === '运行' || t === '复制' || t === 'Copy' || t === 'Run') {
+        if (e.closest && e.closest('[class*="code"]')) { e.remove(); }
+      }
     });
-    // 移除引用链接：包含 href 的 sup/a 标签（如 ^14^15）
-    root.querySelectorAll('a[href*="http"], sup a, a[href*="/citation"], a[href*="/ref"], [class*="citation"], [class*="reference"]').forEach(e => {
-      if (e.textContent.trim().length < 20) e.remove(); // 只移除短引用链接，保留正文链接
+    // 代码高亮 span（hljs, prism, shiki 等）—— 安全解包
+    root.querySelectorAll('span[class*="hljs-"], span[class*="token-"], span[class*="syntax-"]').forEach(function(e) {
+      var p = e.parentNode;
+      if (p) {
+        while (e.firstChild) { p.insertBefore(e.firstChild, e); }
+        e.remove();
+      }
     });
-    // 移除数字上标引用按钮
-    root.querySelectorAll('sup, [class*="superscript"]').forEach(e => {
+    // 移除引用链接
+    root.querySelectorAll('a[href*="http"]:not([href*="placeholder"]), sup a, a[href*="/citation"], a[href*="/ref"], [class*="citation"], [class*="reference"]').forEach(function(e) {
+      if (e.textContent.trim().length < 20) e.remove();
+    });
+    // 移除数字上标引用
+    root.querySelectorAll('sup, [class*="superscript"]').forEach(function(e) {
       if (/^\d+$/.test(e.textContent.trim()) || e.querySelector('a[href]')) e.remove();
+    });
+    // 移除空元素（无文本、无图片的子元素）
+    root.querySelectorAll('div, span, p').forEach(function(e) {
+      var txt = (e.textContent || '').trim();
+      var img = e.querySelector('img');
+      if (!txt && !img && e.children.length === 0) { e.remove(); }
     });
   }
 
@@ -671,6 +796,9 @@
     var mdEl = getMsgMarkdownEl(messageEl);
     if (!mdEl) { btn.innerHTML = '❌'; log('directExport: 未找到 Markdown 元素, msgEl tag=', messageEl.tagName, 'class=', getClass(messageEl).substring(0, 60)); return; }
     var clone = mdEl.cloneNode(true);
+    normalizeCodeBlocks(clone);
+    convertDivTables(clone);
+    normalizeHeadings(clone);
     removeThinking(clone); removeUIElements(clone); removeCitationLinks(clone);
     convertKatexToLatex(clone);
     var md = PLATFORM.markdown === '__SELF__' ? htmlToMarkdown(clone) : elementToMarkdown(clone);
