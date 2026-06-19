@@ -148,26 +148,22 @@
    */
   function convertKatexToLatex(root) {
     root.querySelectorAll('.katex').forEach(katexEl => {
-      // 尝试从 annotation 中提取原始 LaTeX 源码
       const annotation = katexEl.querySelector('annotation[encoding="application/x-tex"]');
       if (annotation) {
         const latex = annotation.textContent.trim();
-        // 判断是块级公式还是行内公式
         const isDisplay = katexEl.closest('.katex-display') !== null ||
                           katexEl.classList.contains('katex-display');
-        const wrapper = '$' + latex + '$';
+        const wrapper = isDisplay ? ('$$\n' + latex + '\n$$') : ('$' + latex + '$');
         const textNode = document.createTextNode(wrapper);
         katexEl.parentNode.replaceChild(textNode, katexEl);
       }
     });
-    // 处理 MathJax 渲染（部分平台用 MathJax）
     root.querySelectorAll('script[type="math/tex"], script[type="math/tex; mode=display"]').forEach(script => {
       const latex = script.textContent.trim();
       const isDisplay = script.getAttribute('type') === 'math/tex; mode=display';
-      const wrapper = '$' + latex + '$';
+      const wrapper = isDisplay ? ('$$\n' + latex + '\n$$') : ('$' + latex + '$');
       script.parentNode.replaceChild(document.createTextNode(wrapper), script);
     });
-    // 处理原始 LaTeX 定界符 \(...\) 和 \[...\]（未被 KaTeX/MathJax 渲染时以文本形式存在）
     convertLatexDelimiters(root);
   }
 
@@ -179,9 +175,7 @@
     textNodes.forEach(node => {
       let text = node.textContent;
       let changed = false;
-      // 块级公式 \[...\] → $...$
-      text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, latex) => { changed = true; return '$' + latex.trim() + '$'; });
-      // 行内公式 \(...\) → $...$
+      text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, latex) => { changed = true; return '$$\n' + latex.trim() + '\n$$'; });
       text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, latex) => { changed = true; return '$' + latex.trim() + '$'; });
       if (changed) node.textContent = text;
     });
@@ -217,10 +211,14 @@
         case 'pre': md += processCode(child); break;
         case 'ul': md += processList(child, false); break;
         case 'ol': md += processList(child, true); break;
-        case 'blockquote': md += '\n> ' + text.replace(/\n/g, '\n> ') + '\n'; break;
+        case 'blockquote':
+          var bqMd = elementToMarkdown(child);
+          bqMd = bqMd.split('\n').map(function(l) { return '> ' + l; }).join('\n');
+          md += '\n' + bqMd + '\n';
+          break;
         case 'table': md += processTable(child); break;
         case 'hr': md += '\n---\n'; break;
-        case 'details': break;
+        case 'details': md += elementToMarkdown(child) + '\n'; break;
         case 'div': case 'section': case 'article':
           if (looksLikeDivTable(child)) md += processDivTable(child) + '\n';
           else md += elementToMarkdown(child) + '\n';
@@ -243,8 +241,11 @@
         case 'em': case 'i': result += '*' + inner + '*'; break;
         case 'code': result += '`' + inner + '`'; break;
         case 'a': result += '[' + inner + '](' + (child.getAttribute('href') || '') + ')'; break;
+        case 'img': result += '![image](' + (child.getAttribute('src') || '') + ')'; break;
         case 'del': case 's': result += '~~' + inner + '~~'; break;
         case 'br': result += '\n'; break;
+        case 'u': case 'ins': result += '<u>' + inner + '</u>'; break;
+        case 'kbd': result += inner; break;
         default: result += inner;
       }
     }
@@ -254,34 +255,48 @@
   function processCode(preEl) {
     const codeEl = preEl.querySelector('code');
     const lang = (codeEl?.className?.match(/language-(\w+)/) || [])[1] || '';
-    return '\n```' + lang + '\n' + (codeEl?.textContent || preEl.textContent || '').trim() + '\n```\n';
+    var raw = (codeEl?.innerText || codeEl?.textContent || preEl?.innerText || preEl?.textContent || '');
+    var lines = raw.split('\n');
+    if (lines.length > 1 || raw.length < 200) {
+      raw = raw.replace(/\n\s*$/g, '').replace(/^\s*\n/g, '');
+    }
+    return '\n```' + lang + '\n' + raw.trim() + '\n```\n';
   }
 
-  function processList(listEl, ordered) {
-    let md = '\n';
-    Array.from(listEl.children).filter(c => c.tagName === 'LI').forEach((li, i) => {
-      const prefix = ordered ? (i + 1) + '. ' : '- ';
-      let text = '';
-      for (const child of li.childNodes) {
-        if (child.nodeType === Node.TEXT_NODE) text += child.textContent;
-        else if (child.nodeType === Node.ELEMENT_NODE && !['ul', 'ol'].includes(child.tagName.toLowerCase()))
-          text += child.textContent || '';
+  function processList(listEl, ordered, indent) {
+    var ind = indent || '';
+    var md = '\n';
+    Array.from(listEl.children).filter(function(c) { return c.tagName === 'LI'; }).forEach(function(li, i) {
+      var prefix = ordered ? (i + 1) + '. ' : '- ';
+      var text = '';
+      for (var ci = 0; ci < li.childNodes.length; ci++) {
+        var child = li.childNodes[ci];
+        if (child.nodeType === Node.TEXT_NODE) { text += child.textContent; continue; }
+        if (child.nodeType !== Node.ELEMENT_NODE) continue;
+        var ctag = child.tagName.toLowerCase();
+        if (ctag === 'ul' || ctag === 'ol') continue;
+        text += child.textContent || '';
       }
-      md += prefix + text.trim() + '\n';
-      li.querySelectorAll(':scope > ul, :scope > ol').forEach(nl =>
-        md += '  ' + processList(nl, nl.tagName.toLowerCase() === 'ol').trim().replace(/\n/g, '\n  ') + '\n');
+      md += ind + prefix + text.trim() + '\n';
+      for (var ci2 = 0; ci2 < li.children.length; ci2++) {
+        var sub = li.children[ci2];
+        var stag = sub.tagName.toLowerCase();
+        if (stag === 'ul' || stag === 'ol') {
+          md += processList(sub, stag === 'ol', ind + '  ');
+        }
+      }
     });
     return md;
   }
 
   function processTable(tableEl) {
-    let md = '\n';
-    tableEl.querySelectorAll('tr').forEach((row, i) => {
-      const cells = row.querySelectorAll('th, td');
-      md += '| ' + Array.from(cells).map(c => getText(c)).join(' | ') + ' |\n';
-      if (i === 0) md += '| ' + Array.from(cells).map(() => '---').join(' | ') + ' |\n';
+    var md = '\n';
+    tableEl.querySelectorAll('tr').forEach(function(row, i) {
+      var cells = row.querySelectorAll('th, td');
+      md += '| ' + Array.from(cells).map(function(c) { return getText(c); }).join(' | ') + ' |\n';
+      if (i === 0) md += '| ' + Array.from(cells).map(function() { return '---'; }).join(' | ') + ' |\n';
     });
-    return md;
+    return md + '\n';
   }
 
   function looksLikeDivTable(el) {
@@ -414,7 +429,7 @@
     });
     md = md.replace(/([^|\s])[\-–—]{2,}([^|\s])/g, '$1$2');
     md = md.replace(/[\-–—]+([，。、；：,.;:!?）】」》])/g, '$1');
-    md = md.replace(/[\-–—]+\s*$/gm, '');
+    md = md.replace(/([^-–—\n])[\-–—]+\s*$/gm, '$1');
     md = md.replace(/\s*\[-?\d{1,3}([,，\-–—]\d{1,3})*\]/g, '');
     md = md.replace(/\[-?\d{1,3}([,，\-–—]\d{1,3})*\]\([^)]*\)/g, '');
     md = md.replace(/\(https?:\/\/[^)]+\)/g, '');
