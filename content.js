@@ -100,6 +100,43 @@
   function getText(el) { return (el.textContent || '').trim(); }
 
   // ============ 提取 Markdown ============
+  var _turndown = null;
+  function getTurndown() {
+    if (!_turndown && typeof TurndownService !== 'undefined') {
+      _turndown = new TurndownService({
+        headingStyle: 'atx',
+        bulletListMarker: '-',
+        codeBlockStyle: 'fenced',
+        emDelimiter: '*',
+        br: '  \n'
+      });
+      // Custom rules for Doubao-specific quirks
+      _turndown.addRule('katex-html', {
+        filter: function(node) { return node.classList && (node.classList.contains('katex') || node.classList.contains('katex-display')); },
+        replacement: function(content) { return content; }
+      });
+      // Strip empty links
+      _turndown.addRule('empty-links', {
+        filter: function(node) { return node.nodeName === 'A' && !node.getAttribute('href'); },
+        replacement: function(content) { return content; }
+      });
+    }
+    return _turndown;
+  }
+
+  function htmlToMarkdown(el) {
+    var td = getTurndown();
+    if (td) {
+      try {
+        var result = td.turndown(el.outerHTML || el.innerHTML);
+        return result;
+      } catch(e) {
+        log('turndown 失败，回退到 elementToMarkdown:', e);
+      }
+    }
+    return elementToMarkdown(el);
+  }
+
   function extractContent(el) {
     const clone = el.cloneNode(true);
     removeThinking(clone);
@@ -107,7 +144,10 @@
     removeCitationLinks(clone);
     convertKatexToLatex(clone);
     const html = clone.innerHTML.trim();
-    const md = cleanContent(elementToMarkdown(clone));            // HTML→Markdown（预览/编辑用）
+    // __SELF__ 模式（豆包）：使用 Turndown 进行 HTML→Markdown 转换
+    var md = PLATFORM.markdown === '__SELF__'
+      ? cleanContent(htmlToMarkdown(clone))
+      : cleanContent(elementToMarkdown(clone));
     return { html, md };
   }
 
@@ -133,6 +173,10 @@
   function removeUIElements(root) {
     root.querySelectorAll('button, [role="button"], svg, [class*="icon-btn"], [class*="copy-btn"], [class*="download"], [class*="clipboard"]').forEach(e => e.remove());
     root.querySelectorAll('[class*="toolbar"], [class*="action-bar"], [class*="code-header"]').forEach(e => e.remove());
+    // 代码高亮 span（hljs, prism, shiki 等）
+    root.querySelectorAll('span[class*="hljs-"], span[class*="token-"], span[class*="syntax-"]').forEach(e => {
+      e.replaceWith.apply(e, Array.from(e.childNodes));
+    });
     // 移除引用链接：包含 href 的 sup/a 标签（如 ^14^15）
     root.querySelectorAll('a[href*="http"], sup a, a[href*="/citation"], a[href*="/ref"], [class*="citation"], [class*="reference"]').forEach(e => {
       if (e.textContent.trim().length < 20) e.remove(); // 只移除短引用链接，保留正文链接
@@ -629,7 +673,7 @@
     var clone = mdEl.cloneNode(true);
     removeThinking(clone); removeUIElements(clone); removeCitationLinks(clone);
     convertKatexToLatex(clone);
-    var md = elementToMarkdown(clone);
+    var md = PLATFORM.markdown === '__SELF__' ? htmlToMarkdown(clone) : elementToMarkdown(clone);
     md = cleanContent(md);
     if (!md) { btn.innerHTML = '⚠️'; log('directExport: 提取后内容为空, clone text=', (clone.textContent || '').trim().substring(0, 60)); return; }
     var fname = takeWords(extractUserQuestion(messageEl), 10) || 'AI-Export';

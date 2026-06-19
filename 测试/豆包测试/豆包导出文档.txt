@@ -1,0 +1,21 @@
+Markdown 完整语法测试文档本文档涵盖了主流 Markdown 的全部常用语法，可用于测试导出、渲染或转换工具的兼容性。一、标题层级一级标题 H1二级标题 H2三级标题 H3四级标题 H4五级标题 H5六级标题 H6二、文本格式这是粗体文本
+这是斜体文本
+这是粗斜体文本
+删除线文本
+下划线文本
+const hello = "world";
+下标：H2O，上标：X^2^（部分扩展语法支持）三、列表无序列表苹果香蕉小米蕉
+帝王蕉橙子有序列表第一步第二步子步骤 A
+子步骤 B
+3. 第三步任务列表已完成任务未完成任务待办事项四、引用这是嵌套引用。五、代码块行内代码print("Hello World")普通代码块plaintextdef function_name: print("这是无语法高亮的代码块") return True带语法高亮代码块（Python）pythondef fibonacci(n): if n <= 1: return n return fibonacci(n-1) + fibonacci(n-2)# 计算第10项result = fibonacci(10)print(f"斐波那契第10项: <span class="hljs-subst">{result}"</span>)JavaScript 代码块javascriptconst greeting = (name) => { return `Hello, <span class="hljs-subst">${name}!`</span>;};console.log(greeting("Markdown"));六、链接与图片普通链接带标题的链接引用式链接图片带链接的图片七、表格基础表格表格姓名年龄职业张三25工程师李四30设计师王五28产品经理对齐方式表格表格左对齐居中对齐右对齐内容 A内容 B内容 C测试 1测试 2测试 3含换行与格式的表格表格功能说明示例粗体加粗显示加粗文字代码行内代码code链接跳转链接点我八、分隔线以下是三种分隔线写法：九、脚注^1
+^note十、定义列表十一、HTML 标签Markdown 支持内嵌 HTML：
+Ctrl + C 是复制快捷键。十二、转义字符要显示 Markdown 特殊符号，需要反斜杠转义：十三、数学公式（LaTeX 扩展）行内公式E=mc2块级公式∑i=1n​i=2n(n+1)​
+[ac​bd​]十四、目录与锚点回到顶部跳转到表格部分十五、多层嵌套综合示例第一项：带引用的列表嵌套在列表中的引用
+第二行引用内容
+2. 第二项：带代码的列表
+bash运行echo "嵌套在列表中的代码"
+3. 第三项：带表格的列表表格列 1列 2AB表格对齐、代码高亮、图片显示、列表嵌套、脚注渲染
+需要我补充更多特定语法（如 Mermaid 流程图、表情符号、复选框交互等）的测试用例吗？
+给我一些Markdown语法的实际应用案例
+推荐一些学习Markdown语法的资源
+如何在不同的平台和软件中使用Markdown语法？

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NQ-Assistant",
-  "version": "2.2.3",
+  "version": "2.3.0",
   "description": "多平台 AI 回复提取、编辑、模板导出 Word",
   "minimum_chrome_version": "114",
   "icons": {
@@ -35,6 +35,7 @@
         "lib/latex2omml.js",
         "lib/marked.min.js",
         "lib/highlight.min.js",
+        "lib/turndown.min.js",
         "lib/md2docx.js",
         "lib/katex.min.js",
         "lib/markdown-it.min.js",
