@@ -165,108 +165,6 @@
     return lines.join('\n');
   }
 
-  /** 将 div 表格转换为 HTML <table>，支持 Doubao 的 div 布局表格 */
-  function convertDivTables(root) {
-    // Pass 1: 找所有包含表格特征的容器，检测 flat cell layout (Doubao: 一个容器内所有子 div 都是 cell)
-    root.querySelectorAll('div, section').forEach(function(container) {
-      if (container.tagName === 'TABLE') return;
-      var cls = getClass(container).toLowerCase();
-      var children = Array.prototype.filter.call(container.children, function(c) {
-        return c.nodeType === Node.ELEMENT_NODE;
-      });
-      if (children.length < 4) return;
-
-      // Class-less cells: check if all direct children are same-tag with similar structure
-      var firstTag = children[0].tagName;
-      var allSameTag = children.every(function(c) { return c.tagName === firstTag; });
-      if (allSameTag) {
-        // Look for repeating class pattern (e.g. every 3 divs have same set of classes)
-        var classSig = [];
-        for (var ci = 0; ci < Math.min(children.length, 20); ci++) {
-          classSig.push(getClass(children[ci]).toLowerCase().replace(/\d+/g, '#'));
-        }
-        var pat = detectRepeat(classSig);
-        if (pat > 0 && pat <= 6) {
-          var nCols = pat;
-          var nRows = Math.floor(children.length / nCols);
-          if (nRows >= 2 && nRows * nCols === children.length) {
-            var table = document.createElement('table');
-            var thead = document.createElement('thead');
-            var tbody = document.createElement('tbody');
-            for (var ri = 0; ri < nRows; ri++) {
-              var tr = document.createElement('tr');
-              for (var ci2 = 0; ci2 < nCols; ci2++) {
-                var idx = ri * nCols + ci2;
-                var tagName = ri === 0 ? 'th' : 'td';
-                var cell = document.createElement(tagName);
-                cell.innerHTML = children[idx].innerHTML;
-                tr.appendChild(cell);
-              }
-              if (ri === 0) thead.appendChild(tr); else tbody.appendChild(tr);
-            }
-            table.appendChild(thead);
-            table.appendChild(tbody);
-            while (container.firstChild) { container.removeChild(container.firstChild); }
-            container.appendChild(table);
-            return;
-          }
-        }
-      }
-    });
-
-    // Pass 2: 找 row 结构的容器
-    root.querySelectorAll('[class*="table"], [class*="tbl"], [class*="grid"]').forEach(function(container) {
-      if (container.tagName === 'TABLE') return;
-      var children = Array.prototype.filter.call(container.children, function(c) {
-        return c.nodeType === Node.ELEMENT_NODE;
-      });
-      if (children.length < 2) return;
-      var rows = [];
-      for (var ri = 0; ri < children.length; ri++) {
-        var rowEl = children[ri];
-        var rowCls = getClass(rowEl).toLowerCase();
-        if (/row|tr/i.test(rowCls)) {
-          var cells = Array.prototype.filter.call(rowEl.children, function(c) {
-            return c.nodeType === Node.ELEMENT_NODE;
-          });
-          if (cells.length >= 2) { rows.push(cells); }
-        } else if (/cell|col|td|th/i.test(rowCls)) {
-          // This element is itself a cell — accumulate until we hit a pattern
-        }
-      }
-      if (rows.length >= 2 && rows[0].length >= 2) {
-        var table = document.createElement('table');
-        var thead = document.createElement('thead');
-        var tbody = document.createElement('tbody');
-        for (var ri2 = 0; ri2 < rows.length; ri2++) {
-          var tr = document.createElement('tr');
-          for (var ci = 0; ci < rows[ri2].length; ci++) {
-            var tagName2 = ri2 === 0 ? 'th' : 'td';
-            var cell = document.createElement(tagName2);
-            cell.innerHTML = rows[ri2][ci].innerHTML;
-            tr.appendChild(cell);
-          }
-          if (ri2 === 0) thead.appendChild(tr); else tbody.appendChild(tr);
-        }
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        while (container.firstChild) { container.removeChild(container.firstChild); }
-        container.appendChild(table);
-      }
-    });
-  }
-
-  function detectRepeat(arr) {
-    for (var p = 1; p <= Math.floor(arr.length / 2); p++) {
-      var ok = true;
-      for (var i = 0; i < arr.length; i++) {
-        if (arr[i] !== arr[i % p]) { ok = false; break; }
-      }
-      if (ok) return p;
-    }
-    return 0;
-  }
-
   /** 将 code-block 头部中的语言名移到 <code> 的 class 上，移除"运行"按钮和零散文本 */
   function normalizeCodeBlocks(root) {
     // 收集所有 pre 并处理它们的前驱兄弟节点
@@ -345,21 +243,78 @@
 
   function extractContent(el) {
     const clone = el.cloneNode(true);
-    // __SELF__ 模式预处理
+    // Step 0 (must be first): KaTeX → LaTeX before any DOM changes
+    convertKatexToLatex(clone);
+    // Step 1: normalize structures for __SELF__ platforms (Doubao)
     if (PLATFORM.markdown === '__SELF__') {
       normalizeCodeBlocks(clone);
-      convertDivTables(clone);
+      reconstructDivTables(clone);
       normalizeHeadings(clone);
     }
+    // Step 2: remove non-content elements
     removeThinking(clone);
     removeUIElements(clone);
     removeCitationLinks(clone);
-    convertKatexToLatex(clone);
+    // Step 3: convert to markdown
     const html = clone.innerHTML.trim();
     var md = PLATFORM.markdown === '__SELF__'
       ? cleanContent(htmlToMarkdown(clone))
       : cleanContent(elementToMarkdown(clone));
     return { html, md };
+  }
+
+  /** Reconstruct tables: detect flat-div grids and wrap in <table>.
+   *  Strategy: find containers whose direct children are same-tag divs
+   *  with similar structure, detect column count via text-length histogram. */
+  function reconstructDivTables(root) {
+    var allDivs = root.querySelectorAll('div, section');
+    var candidates = [];
+    for (var di = 0; di < allDivs.length; di++) {
+      var c = allDivs[di];
+      if (c.tagName === 'TABLE') continue;
+      var kids = Array.prototype.filter.call(c.children, function(k) {
+        return k.nodeType === Node.ELEMENT_NODE;
+      });
+      if (kids.length < 4) continue;
+      var firstTag = kids[0].tagName;
+      if (!kids.every(function(k) { return k.tagName === firstTag; })) continue;
+      if (!kids.every(function(k) { return (k.textContent || '').length < 500 && k.childElementCount < 10; })) continue;
+      // Must NOT contain sub-tables, pre, ul, ol (structural elements inside cells = not a table)
+      if (c.querySelector('table, pre, ul, ol, img, svg')) continue;
+
+      var bestCols = 0;
+      for (var cols = 2; cols <= Math.min(6, Math.floor(kids.length / 2)); cols++) {
+        if (kids.length % cols === 0 && Math.floor(kids.length / cols) >= 2) {
+          bestCols = cols; break;
+        }
+      }
+      if (bestCols) candidates.push({ container: c, cols: bestCols, n: kids.length });
+    }
+
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var cand = candidates[ci], cols = cand.cols;
+      var rows = cand.n / cols;
+      var table = document.createElement('table');
+      var thead = document.createElement('thead');
+      var tbody = document.createElement('tbody');
+      for (var r = 0; r < rows; r++) {
+        var tr = document.createElement('tr');
+        for (var c2 = 0; c2 < cols; c2++) {
+          var idx = r * cols + c2;
+          var tag = r === 0 ? 'th' : 'td';
+          var cell = document.createElement(tag);
+          cell.innerHTML = cand.container.children[idx].innerHTML;
+          tr.appendChild(cell);
+        }
+        if (r === 0) thead.appendChild(tr); else tbody.appendChild(tr);
+      }
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      while (cand.container.firstChild) cand.container.removeChild(cand.container.firstChild);
+      cand.container.appendChild(table);
+    }
+    if (candidates.length) log('reconstructDivTables: 重构', candidates.length, '个表格 (列数:', candidates.map(function(c) { return c.cols; }).join(','), ')');
+    else log('reconstructDivTables: 未检测到表格');
   }
 
   /** 移除引用链接：sup 数字、短链接、citation 类元素 */
@@ -916,13 +871,16 @@
     var mdEl = getMsgMarkdownEl(messageEl);
     if (!mdEl) { btn.innerHTML = '❌'; log('directExport: 未找到 Markdown 元素, msgEl tag=', messageEl.tagName, 'class=', getClass(messageEl).substring(0, 60)); return; }
     var clone = mdEl.cloneNode(true);
+    // __SELF__ mode: KaTeX first, then normalize, then strip cruft
+    convertKatexToLatex(clone);
     if (PLATFORM.markdown === '__SELF__') {
       normalizeCodeBlocks(clone);
-      convertDivTables(clone);
+      reconstructDivTables(clone);
       normalizeHeadings(clone);
     }
-    removeThinking(clone); removeUIElements(clone); removeCitationLinks(clone);
-    convertKatexToLatex(clone);
+    removeThinking(clone);
+    removeUIElements(clone);
+    removeCitationLinks(clone);
     var md = PLATFORM.markdown === '__SELF__' ? htmlToMarkdown(clone) : elementToMarkdown(clone);
     md = cleanContent(md);
     if (!md) { btn.innerHTML = '⚠️'; log('directExport: 提取后内容为空, clone text=', (clone.textContent || '').trim().substring(0, 60)); return; }
