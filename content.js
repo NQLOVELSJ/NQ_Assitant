@@ -262,33 +262,37 @@
 
   /** Diagnostic: dump DOM structure near table-looking areas */
   function dumpDoubaoDOM(root) {
-    var candidates = [];
-    root.querySelectorAll('div').forEach(function(div) {
-      var kids = [];
-      for (var i = 0; i < div.children.length; i++) {
-        if (div.children[i].nodeType === Node.ELEMENT_NODE) kids.push(div.children[i]);
-      }
-      if (kids.length >= 3) {
-        var tags = {};
-        kids.forEach(function(k) { tags[k.tagName] = (tags[k.tagName] || 0) + 1; });
-        for (var t in tags) {
-          if (tags.hasOwnProperty(t) && tags[t] === kids.length) { candidates.push({ el: div, n: kids.length, tag: t }); break; }
-        }
-      }
-    });
-    candidates.sort(function(a, b) { return b.n - a.n; });
-    var shown = 0;
-    log('=== 豆包 DOM 诊断 ===');
-    for (var ci = 0; ci < Math.min(candidates.length, 8); ci++) {
-      var c = candidates[ci];
-      if (c.n < 4) continue;
-      var cls = getClass(c.el).substring(0, 60);
-      log('  [' + ci + '] n=' + c.n + ' tag=' + c.tag + ' class="' + cls + '"');
-      log('    child[0] tag=' + c.el.children[0].tagName + ' class="' + getClass(c.el.children[0]).substring(0, 50) + '" text="' + (c.el.children[0].textContent || '').trim().substring(0, 40) + '"');
-      log('    child[1] tag=' + c.el.children[1].tagName + ' class="' + getClass(c.el.children[1]).substring(0, 50) + '" text="' + (c.el.children[1].textContent || '').trim().substring(0, 40) + '"');
-      shown++;
+    // 1. Check for existing <table> elements
+    var tables = root.querySelectorAll('table');
+    log('=== 豆包 DOM 诊断 === 找到 ' + tables.length + ' 个 <table> 元素');
+    for (var ti = 0; ti < Math.min(tables.length, 5); ti++) {
+      var tbl = tables[ti];
+      var rows = tbl.querySelectorAll('tr');
+      var firstRowText = rows.length > 0 ? (rows[0].textContent || '').trim().substring(0, 60) : '(none)';
+      log('  table[' + ti + '] class="' + getClass(tbl).substring(0, 50) + '" rows=' + rows.length + ' firstRow="' + firstRowText + '"');
     }
-    if (!shown) log('  (无候选)');
+
+    // 2. Check for .katex elements
+    var katexEls = root.querySelectorAll('.katex');
+    log('  找到 ' + katexEls.length + ' 个 .katex 元素');
+    for (var ki = 0; ki < Math.min(katexEls.length, 3); ki++) {
+      var k = katexEls[ki];
+      var ann = k.querySelector('annotation[encoding="application/x-tex"]');
+      var dl = k.getAttribute('data-latex');
+      var ml = k.querySelector('.katex-mathml annotation');
+      var txt = (k.textContent || '').trim().substring(0, 50);
+      log('  katex[' + ki + '] hasAnn=' + !!ann + ' hasDataLatex=' + !!dl + ' hasMathML=' + !!ml + ' text="' + txt + '"');
+    }
+
+    // 3. Check for mjx-container or MathJax
+    var mjx = root.querySelectorAll('.MathJax, .mjx-container, [class*="math"]');
+    log('  MathJax/类math元素: ' + mjx.length + ' (sample: ' + (mjx.length > 0 ? getClass(mjx[0]).substring(0, 50) : 'none') + ')');
+
+    // 4. Quick list of all top-level tags with count
+    var tagCounts = {};
+    root.querySelectorAll('*').forEach(function(e) { tagCounts[e.tagName] = (tagCounts[e.tagName] || 0) + 1; });
+    var sorted = Object.keys(tagCounts).filter(function(t) { return tagCounts[t] > 3; }).sort(function(a, b) { return tagCounts[b] - tagCounts[a]; });
+    log('  标签统计: ' + sorted.map(function(t) { return t + ':' + tagCounts[t]; }).join(', '));
   }
 
   /** Reconstruct tables: detect flat-div grids and wrap in <table>.
@@ -307,9 +311,9 @@
       var firstTag = kids[0].tagName;
       if (!kids.every(function(k) { return k.tagName === firstTag; })) return;
       // Cell-like: short text, few children, no structural elements inside individual cells
+      // Cell-like: short text, few children. Relaxed: just prohibit deeply nested structures.
       if (!kids.every(function(k) {
-        return (k.textContent || '').length < 500 && k.childElementCount < 10 &&
-               !k.querySelector('pre, ul, ol, h1, h2, h3, h4, h5, h6, table, img, svg');
+        return !k.querySelector('pre, table, svg');
       })) return;
       // Try column counts 2-6
       var bestCols = 0;
@@ -336,25 +340,25 @@
       if (!isContained) keep.push(candidates[ci]);
     }
 
-    for (ci = 0; ci < keep.length; ci++) {
-      var cand = keep[ci], cols = cand.cols;
+    for (var cIdx = 0; cIdx < keep.length; cIdx++) {
+      var cand = keep[cIdx], cols = cand.cols;
       var rows = cand.n / cols;
+      // Snapshot innerHTML before mutations
+      var cellHTMLs = [];
+      for (var chIdx = 0; chIdx < cand.n; chIdx++) {
+        cellHTMLs.push(cand.container.children[chIdx].innerHTML);
+      }
       var table = document.createElement('table');
-      var thead = document.createElement('thead');
-      var tbody = document.createElement('tbody');
       for (var r = 0; r < rows; r++) {
         var tr = document.createElement('tr');
         for (var c2 = 0; c2 < cols; c2++) {
           var idx = r * cols + c2;
-          var tag = r === 0 ? 'th' : 'td';
-          var cell = document.createElement(tag);
-          cell.innerHTML = cand.container.children[idx].innerHTML;
+          var cell = document.createElement(r === 0 ? 'th' : 'td');
+          cell.innerHTML = cellHTMLs[idx];
           tr.appendChild(cell);
         }
-        if (r === 0) thead.appendChild(tr); else tbody.appendChild(tr);
+        table.appendChild(tr);
       }
-      table.appendChild(thead);
-      table.appendChild(tbody);
       while (cand.container.firstChild) cand.container.removeChild(cand.container.firstChild);
       cand.container.appendChild(table);
     }
